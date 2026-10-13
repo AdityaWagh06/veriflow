@@ -25,6 +25,29 @@ Use this checklist after implementing a feature or fixing a bug.
 
 ## 4. Failure Triage and Bounded Repair
 
+When checks fail during execution:
+
+- [ ] **Inspect Diagnostics First**: Review structured `diagnostics` (category, summary, file/line coordinates, and verbatim evidence) before proposing edits.
+- [ ] **Track Repair Budget**: Count at most 3 repair attempts per session. Count only file modifications made in response to failures (read-only diagnosis does not count).
+- [ ] **Apply Minimal, Targeted Fixes**: Address the specific identified root cause without making unrequested refactors.
+- [ ] **Never Repeat Unsuccessful Fixes**: Ensure each attempt is based on distinct evidence or a new hypothesis.
+- [ ] **Re-Verify Immediately**: Rerun the relevant failing check using `--execute` immediately after modifying files. Never declare a repair successful without re-execution.
+- [ ] **Rerun Broader Suite**: Rerun all project checks after the failing check passes to detect regressions across other components.
+- [ ] **Stop Early on Uncertainty**: If evidence is ambiguous, failures are pre-existing, or fixes would be speculative, stop and report findings.
+- [ ] **Handle Non-Code Failures Appropriately**:
+  - `UNCLASSIFIED`: Do not guess; inspect raw output; stop if root cause is unclear.
+  - `COMMAND_NOT_FOUND`: Report missing tool; do not bypass in code or auto-install tools.
+  - `TIMEOUT`: Check for infinite loops; suggest higher timeout if test is legitimately slow.
+  - Missing dependencies: Report missing module; do not run unauthorized package managers.
+- [ ] **Enforce Code Integrity Prohibitions**:
+  - Do NOT delete or weaken failing tests or assertions.
+  - Do NOT add suppression comments (`# noqa`, `// eslint-disable`, `@ts-ignore`).
+  - Do NOT catch and silence exceptions to fake success.
+  - Do NOT modify dependencies or configuration unless strictly justified.
+- [ ] **Regression Reversion**: If a repair introduces regressions, report them honestly and revert the agent's targeted edit if safe.
+
+## 5. Routing and Integration
+
 For applications that use routes or APIs:
 
 - [ ] Check that referenced pages and route handlers exist.
