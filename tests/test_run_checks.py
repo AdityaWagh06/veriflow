@@ -451,6 +451,264 @@ class TestRunChecksExecution(unittest.TestCase):
         self.assertIn("RUNNER_CALLED", res["stdout"])
 
 
+class TestLocalToolResolution(unittest.TestCase):
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+        self.root = Path(self.test_dir)
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def test_1_python_venv_local_pytest(self):
+        """1. Python virtual environment with local pytest."""
+        (self.root / "pyproject.toml").write_text(
+            "[tool.pytest.ini_options]\nminversion = '6.0'\n",
+            encoding="utf-8",
+        )
+        venv_scripts = self.root / ".venv" / "Scripts"
+        venv_scripts.mkdir(parents=True)
+        py_exe = venv_scripts / ("python.exe" if sys.platform == "win32" else "python")
+        py_exe.write_text("# mock python interpreter\n", encoding="utf-8")
+        pytest_exe = venv_scripts / ("pytest.exe" if sys.platform == "win32" else "pytest")
+        pytest_exe.write_text("# mock pytest executable\n", encoding="utf-8")
+
+        res = discover_checks(self.root)
+        test_check = next(c for c in res["discovered_checks"] if c["name"] == "test")
+        self.assertEqual(test_check["resolution_source"], "project_venv")
+        self.assertEqual(test_check["command"], [str(py_exe.resolve()), "-m", "pytest"])
+        self.assertEqual(test_check["resolved_executable"], str(py_exe.resolve()))
+        self.assertIn("project-local venv", test_check["reason"])
+        self.assertFalse(test_check["executed"])
+
+    def test_2_python_venv_missing_linter(self):
+        """2. Python virtual environment with a missing linter."""
+        (self.root / "pyproject.toml").write_text(
+            "[tool.pytest.ini_options]\n\n[tool.ruff]\nline-length = 88\n",
+            encoding="utf-8",
+        )
+        venv_scripts = self.root / ".venv" / "Scripts"
+        venv_scripts.mkdir(parents=True)
+        py_exe = venv_scripts / ("python.exe" if sys.platform == "win32" else "python")
+        py_exe.write_text("# mock python\n", encoding="utf-8")
+        pytest_exe = venv_scripts / ("pytest.exe" if sys.platform == "win32" else "pytest")
+        pytest_exe.write_text("# mock pytest\n", encoding="utf-8")
+        # Notice ruff is NOT installed in .venv
+
+        res = discover_checks(self.root)
+        lint_check = next(c for c in res["discovered_checks"] if c["name"] == "lint")
+        self.assertEqual(lint_check["resolution_source"], "not_found")
+        self.assertIsNone(lint_check["resolved_executable"])
+        self.assertTrue(
+            any("not installed in the project virtual environment" in lim for lim in res["limitations"])
+        )
+
+        exec_res = execute_check(lint_check, self.root)
+        self.assertEqual(exec_res["status"], "COMMAND_NOT_FOUND")
+
+    def test_3_javascript_local_eslint(self):
+        """3. JavaScript project with local ESLint."""
+        (self.root / "package.json").write_text(
+            json.dumps({"scripts": {"test": "node --test"}}),
+            encoding="utf-8",
+        )
+        (self.root / ".eslintrc.json").write_text("{}", encoding="utf-8")
+        bin_dir = self.root / "node_modules" / ".bin"
+        bin_dir.mkdir(parents=True)
+        eslint_tool = bin_dir / ("eslint.cmd" if sys.platform == "win32" else "eslint")
+        eslint_tool.write_text("# mock eslint\n", encoding="utf-8")
+
+        res = discover_checks(self.root)
+        lint_check = next(c for c in res["discovered_checks"] if c["name"] == "lint")
+        self.assertEqual(lint_check["resolution_source"], "node_modules")
+        self.assertEqual(lint_check["resolved_executable"], str(eslint_tool.resolve()))
+        self.assertEqual(lint_check["command"], [str(eslint_tool.resolve()), "."])
+
+    def test_4_windows_and_unix_style_paths(self):
+        """4. Correct handling of Windows and Unix-style paths."""
+        # Unix layout: .venv/bin/
+        unix_root = self.root / "unix_proj"
+        unix_bin = unix_root / ".venv" / "bin"
+        unix_bin.mkdir(parents=True)
+        py_unix = unix_bin / "python"
+        py_unix.write_text("#!/bin/sh\n", encoding="utf-8")
+        pytest_unix = unix_bin / "pytest"
+        pytest_unix.write_text("#!/bin/sh\n", encoding="utf-8")
+        (unix_root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+
+        res_unix = discover_checks(unix_root)
+        test_unix = next(c for c in res_unix["discovered_checks"] if c["name"] == "test")
+        self.assertEqual(test_unix["resolution_source"], "project_venv")
+        self.assertEqual(test_unix["resolved_executable"], str(py_unix.resolve()))
+
+        # Windows layout: .venv/Scripts/
+        win_root = self.root / "win_proj"
+        win_scripts = win_root / ".venv" / "Scripts"
+        win_scripts.mkdir(parents=True)
+        py_win = win_scripts / "python.exe"
+        py_win.write_text("dummy", encoding="utf-8")
+        pytest_win = win_scripts / "pytest.exe"
+        pytest_win.write_text("dummy", encoding="utf-8")
+        (win_root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+
+        res_win = discover_checks(win_root)
+        test_win = next(c for c in res_win["discovered_checks"] if c["name"] == "test")
+        self.assertEqual(test_win["resolution_source"], "project_venv")
+        self.assertEqual(test_win["resolved_executable"], str(py_win.resolve()))
+
+    def test_5_local_tool_preference_over_global_fallback(self):
+        """5. Local tool preference over a global fallback."""
+        (self.root / "package.json").write_text("{}", encoding="utf-8")
+        (self.root / ".eslintrc.json").write_text("{}", encoding="utf-8")
+        bin_dir = self.root / "node_modules" / ".bin"
+        bin_dir.mkdir(parents=True)
+        local_eslint = bin_dir / ("eslint.cmd" if sys.platform == "win32" else "eslint")
+        local_eslint.write_text("local tool", encoding="utf-8")
+
+        fake_global = "C:\\global_tools\\eslint.cmd" if sys.platform == "win32" else "/usr/bin/eslint"
+        with unittest.mock.patch("shutil.which", return_value=fake_global):
+            res = discover_checks(self.root)
+            lint_check = next(c for c in res["discovered_checks"] if c["name"] == "lint")
+            self.assertEqual(lint_check["resolution_source"], "node_modules")
+            self.assertEqual(lint_check["resolved_executable"], str(local_eslint.resolve()))
+            self.assertNotEqual(lint_check["resolved_executable"], fake_global)
+
+    def test_6_missing_local_tools_with_no_global_fallback(self):
+        """6. Missing local tools with no global fallback."""
+        (self.root / "package.json").write_text("{}", encoding="utf-8")
+        (self.root / ".eslintrc.json").write_text("{}", encoding="utf-8")
+
+        with unittest.mock.patch("shutil.which", return_value=None):
+            res = discover_checks(self.root)
+            lint_check = next(c for c in res["discovered_checks"] if c["name"] == "lint")
+            self.assertEqual(lint_check["resolution_source"], "not_found")
+            self.assertIsNone(lint_check["resolved_executable"])
+            self.assertTrue(
+                any("not installed in node_modules/.bin or PATH" in lim for lim in res["limitations"])
+            )
+
+            exec_res = execute_check(lint_check, self.root)
+            self.assertEqual(exec_res["status"], "COMMAND_NOT_FOUND")
+
+    def test_7_package_manager_and_lockfile_consistency(self):
+        """7. Package-manager and lockfile consistency."""
+        managers = [
+            ("pnpm-lock.yaml", "pnpm"),
+            ("yarn.lock", "yarn"),
+            ("bun.lockb", "bun"),
+            ("package-lock.json", "npm"),
+        ]
+        for lockfile, expected_pm in managers:
+            sub = self.root / f"proj_{expected_pm}"
+            sub.mkdir()
+            (sub / "package.json").write_text(
+                json.dumps({"scripts": {"test": "vitest"}}),
+                encoding="utf-8",
+            )
+            (sub / lockfile).write_text("# lockfile marker\n", encoding="utf-8")
+
+            res = discover_checks(sub)
+            self.assertEqual(res["package_manager"], expected_pm)
+            test_check = next(c for c in res["discovered_checks"] if c["name"] == "test")
+            self.assertEqual(test_check["command"], [expected_pm, "test"])
+            self.assertTrue((sub / lockfile).is_file())
+
+    def test_8_discovery_mode_never_executes_commands(self):
+        """8. Discovery mode still never executes commands."""
+        canary = self.root / "canary.txt"
+        (self.root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+        venv_scripts = self.root / ".venv" / "Scripts"
+        venv_scripts.mkdir(parents=True)
+        py_exe = venv_scripts / ("python.exe" if sys.platform == "win32" else "python")
+        py_exe.write_text(f"touch {canary}", encoding="utf-8")
+        pytest_exe = venv_scripts / ("pytest.exe" if sys.platform == "win32" else "pytest")
+        pytest_exe.write_text(f"touch {canary}", encoding="utf-8")
+
+        res = discover_checks(self.root, execute=False)
+        self.assertFalse(canary.exists(), "Discovery preview must never execute commands!")
+        self.assertFalse(res["executed"])
+        self.assertFalse(res["discovered_checks"][0]["executed"])
+        self.assertEqual(res["discovered_checks"][0]["status"], "proposed")
+
+    def test_9_explicit_execution_honors_timeouts_and_statuses(self):
+        """9. Explicit execution still honors timeouts and result statuses."""
+        pass_check = {
+            "name": "pass_test",
+            "ecosystem": "python",
+            "command": [sys.executable, "-c", "import sys; sys.exit(0)"],
+            "reason": "Passing test",
+            "executed": False,
+            "status": "proposed",
+        }
+        res_pass = execute_check(pass_check, self.root)
+        self.assertEqual(res_pass["status"], "PASS")
+        self.assertEqual(res_pass["exit_code"], 0)
+
+        fail_check = {
+            "name": "fail_test",
+            "ecosystem": "python",
+            "command": [sys.executable, "-c", "import sys; sys.stderr.write('fail err'); sys.exit(5)"],
+            "reason": "Failing test",
+            "executed": False,
+            "status": "proposed",
+        }
+        res_fail = execute_check(fail_check, self.root)
+        self.assertEqual(res_fail["status"], "FAIL")
+        self.assertEqual(res_fail["exit_code"], 5)
+        self.assertIn("fail err", res_fail["stderr"])
+
+        timeout_check = {
+            "name": "timeout_test",
+            "ecosystem": "python",
+            "command": [sys.executable, "-c", "import time; time.sleep(5)"],
+            "reason": "Timeout test",
+            "executed": False,
+            "status": "proposed",
+        }
+        res_to = execute_check(timeout_check, self.root, timeout=0.2)
+        self.assertEqual(res_to["status"], "TIMEOUT")
+
+        missing_check = {
+            "name": "missing_test",
+            "ecosystem": "python",
+            "command": ["totally_missing_executable_123456789"],
+            "reason": "Missing tool",
+            "executed": False,
+            "status": "proposed",
+        }
+        res_missing = execute_check(missing_check, self.root)
+        self.assertEqual(res_missing["status"], "COMMAND_NOT_FOUND")
+
+    def test_10_paths_containing_spaces(self):
+        """10. Paths containing spaces."""
+        spaced_dir = self.root / "Project With Several Spaces"
+        spaced_dir.mkdir()
+        (spaced_dir / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+        venv_scripts = spaced_dir / ".venv" / "Scripts"
+        venv_scripts.mkdir(parents=True)
+        py_exe = venv_scripts / ("python.exe" if sys.platform == "win32" else "python")
+        py_exe.write_text("mock", encoding="utf-8")
+        pytest_exe = venv_scripts / ("pytest.exe" if sys.platform == "win32" else "pytest")
+        pytest_exe.write_text("mock", encoding="utf-8")
+
+        res = discover_checks(spaced_dir)
+        test_check = next(c for c in res["discovered_checks"] if c["name"] == "test")
+        self.assertEqual(test_check["resolution_source"], "project_venv")
+        self.assertEqual(test_check["command"][0], str(py_exe.resolve()))
+        self.assertIn("Project With Several Spaces", test_check["command"][0])
+
+        exec_check = {
+            "name": "space_test",
+            "ecosystem": "python",
+            "command": [sys.executable, "-c", "print('spaces ok')"],
+            "reason": "Spaced path test",
+            "executed": False,
+            "status": "proposed",
+        }
+        res_exec = execute_check(exec_check, spaced_dir)
+        self.assertEqual(res_exec["status"], "PASS")
+        self.assertIn("spaces ok", res_exec["stdout"])
+
+
 
 if __name__ == '__main__':
     unittest.main()
