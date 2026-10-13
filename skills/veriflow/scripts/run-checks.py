@@ -43,6 +43,15 @@ def _read_file_safe(path: Path) -> str:
 
 
 def resolve_executable(raw_exe: str, cwd: Path | str, allow_global: bool = True) -> dict:
+    cwd_path = Path(cwd).resolve()
+    cand = cwd_path / raw_exe
+    if cand.is_file():
+        return {"resolved_path": str(cand), "resolution_source": "project_root"}
+    if sys.platform == "win32":
+        for ext in (".cmd", ".bat", ".exe"):
+            c_ext = cwd_path / f"{raw_exe}{ext}"
+            if c_ext.is_file():
+                return {"resolved_path": str(c_ext), "resolution_source": "project_root"}
     resolved = shutil.which(raw_exe)
     if resolved:
         return {"resolved_path": resolved, "resolution_source": "system_path"}
