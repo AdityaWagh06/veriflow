@@ -941,6 +941,162 @@ src/models/user.ts(30,12): error TS2304: Cannot find name 'Role'.
             self.assertEqual(canary_file.read_text(encoding="utf-8"), "initial content")
 
 
+class TestCheckFilter(unittest.TestCase):
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+        self.root = Path(self.test_dir)
 
-if __name__ == '__main__':
+    def tearDown(self):
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def test_1_exact_selection_of_valid_check_programmatic(self):
+        """1. Exact selection of a valid check via Python API."""
+        (self.root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+        (self.root / "ruff.toml").write_text("", encoding="utf-8")
+        tests_dir = self.root / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_a.py").write_text("def test_ok(): assert True\n", encoding="utf-8")
+
+        res_test = discover_checks(self.root, check_name="test")
+        self.assertEqual(len(res_test["discovered_checks"]), 1)
+        self.assertEqual(res_test["discovered_checks"][0]["name"], "test")
+        self.assertEqual(res_test["summary"]["total"], 1)
+
+        res_lint = discover_checks(self.root, check_name="lint")
+        self.assertEqual(len(res_lint["discovered_checks"]), 1)
+        self.assertEqual(res_lint["discovered_checks"][0]["name"], "lint")
+        self.assertEqual(res_lint["summary"]["total"], 1)
+
+    def test_2_invalid_check_names(self):
+        """2. Invalid check name raises clear ValueError listing available check names."""
+        (self.root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+        (self.root / "ruff.toml").write_text("", encoding="utf-8")
+        tests_dir = self.root / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_a.py").write_text("def test_ok(): assert True\n", encoding="utf-8")
+
+        with self.assertRaises(ValueError) as ctx:
+            discover_checks(self.root, check_name="nonexistent")
+        err_msg = str(ctx.exception)
+        self.assertIn("Check 'nonexistent' not found", err_msg)
+        self.assertIn("lint", err_msg)
+        self.assertIn("test", err_msg)
+
+    def test_3_clear_behavior_when_project_has_no_discovered_checks(self):
+        """3. Clear behavior when the project has no discovered checks."""
+        with self.assertRaises(ValueError) as ctx:
+            discover_checks(self.root, check_name="test")
+        err_msg = str(ctx.exception)
+        self.assertIn("Check 'test' not found", err_msg)
+        self.assertIn("No checks were discovered for this project", err_msg)
+
+    def test_4_no_accidental_execution_of_unselected_checks(self):
+        """4. Verify unselected checks are never executed."""
+        package_json = {
+            "name": "filter-test",
+            "scripts": {
+                "test": "node -v",
+                "lint": "node -v",
+            },
+        }
+        (self.root / "package.json").write_text(json.dumps(package_json), encoding="utf-8")
+
+        executed_names = []
+        original_execute_check = run_checks_module.execute_check
+
+        def tracking_execute(check, root, timeout=30):
+            executed_names.append(check["name"])
+            return original_execute_check(check, root, timeout=timeout)
+
+        with unittest.mock.patch.object(run_checks_module, "execute_check", side_effect=tracking_execute):
+            res = discover_checks(self.root, execute=True, check_name="test")
+
+        self.assertEqual(executed_names, ["test"])
+        self.assertNotIn("lint", executed_names)
+        self.assertEqual(len(res["discovered_checks"]), 1)
+        self.assertEqual(res["discovered_checks"][0]["name"], "test")
+
+    def test_5_filtering_in_preview_mode(self):
+        """5. Filtering in preview mode does not execute and returns preview format."""
+        (self.root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+        tests_dir = self.root / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_a.py").write_text("def test_ok(): assert True\n", encoding="utf-8")
+
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), str(self.root), "--check", "test"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("Check Discovery Preview", proc.stdout)
+        self.assertIn("* [test] (python)", proc.stdout)
+        self.assertIn("proposed (executed: False)", proc.stdout)
+
+    def test_6_filtering_with_execute(self):
+        """6. Filtering with --execute only runs the selected check."""
+        (self.root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+        tests_dir = self.root / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_a.py").write_text("def test_ok(): assert True\n", encoding="utf-8")
+
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), str(self.root), "--check", "test", "--execute"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("Verification Check Execution Report", proc.stdout)
+        self.assertIn("[PASS] test (python)", proc.stdout)
+        self.assertIn("Total: 1 | Passed: 1", proc.stdout)
+
+    def test_7_json_output_when_check_is_selected(self):
+        """7. JSON output when a check is selected reflects only the selected check."""
+        (self.root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+        tests_dir = self.root / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_a.py").write_text("def test_ok(): assert True\n", encoding="utf-8")
+
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), str(self.root), "--check", "test", "--json"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0)
+        data = json.loads(proc.stdout)
+        self.assertEqual(len(data["discovered_checks"]), 1)
+        self.assertEqual(data["discovered_checks"][0]["name"], "test")
+        self.assertEqual(data["summary"]["total"], 1)
+
+    def test_8_existing_behavior_when_check_is_omitted(self):
+        """8. Existing behavior when --check is omitted includes all checks."""
+        (self.root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+        (self.root / "ruff.toml").write_text("", encoding="utf-8")
+        tests_dir = self.root / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_a.py").write_text("def test_ok(): assert True\n", encoding="utf-8")
+
+        res = discover_checks(self.root)
+        check_names = {c["name"] for c in res["discovered_checks"]}
+        self.assertEqual(check_names, {"test", "lint"})
+        self.assertEqual(res["summary"]["total"], 2)
+
+    def test_9_cli_invalid_check_returns_clear_error_and_exits_1(self):
+        """9. CLI with invalid check name outputs clear error and exits with code 1."""
+        (self.root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+        tests_dir = self.root / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_a.py").write_text("def test_ok(): assert True\n", encoding="utf-8")
+
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), str(self.root), "--check", "invalid_name"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("Check 'invalid_name' not found", proc.stderr)
+        self.assertIn("Available checks: test", proc.stderr)
+
+
+if __name__ == "__main__":
     unittest.main()
