@@ -31,8 +31,8 @@ When checks fail during execution:
 - [ ] **Track Repair Budget**: Count at most 3 repair attempts per session. Count only file modifications made in response to failures (read-only diagnosis does not count).
 - [ ] **Apply Minimal, Targeted Fixes**: Address the specific identified root cause without making unrequested refactors.
 - [ ] **Never Repeat Unsuccessful Fixes**: Ensure each attempt is based on distinct evidence or a new hypothesis.
-- [ ] **Re-Verify Immediately**: Rerun the relevant failing check using `--execute` immediately after modifying files. Never declare a repair successful without re-execution.
-- [ ] **Rerun Broader Suite**: Rerun all project checks after the failing check passes to detect regressions across other components.
+- [ ] **Re-Verify Immediately**: Rerun the relevant failing check using `--check <failing-check-name> --execute` immediately after modifying files. Never declare a repair successful without re-execution.
+- [ ] **Rerun Broader Suite**: Rerun all project checks (omitting `--check`) after the failing check passes to detect regressions across other components.
 - [ ] **Stop Early on Uncertainty**: If evidence is ambiguous, failures are pre-existing, or fixes would be speculative, stop and report findings.
 - [ ] **Handle Non-Code Failures Appropriately**:
   - `UNCLASSIFIED`: Do not guess; inspect raw output; stop if root cause is unclear.

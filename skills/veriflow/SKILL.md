@@ -90,6 +90,7 @@ python <path-to-skill>/scripts/run-checks.py [target-project-dir] --execute
 ```
 Optional flags:
 - `--timeout SECONDS`: Set a custom per-command timeout (default: 30 seconds).
+- `--check NAME`: Filter to preview or execute only the specified check name (matches the exact discovered check name, such as `test`, `lint`, `typecheck`, `build`, or a package script name).
 - `--json`: Emit a structured execution report with stdout, stderr, exit codes, and parsed `diagnostics`.
 
 The runner evaluates each command safely without shell strings (`shell=False`), tracks process duration, and classifies outcomes into:
@@ -111,7 +112,7 @@ When one or more executed checks fail, follow this structured, bounded 9-step li
 [1. Discover] -> [2. Preview] -> [3. Execute (Opt-In)] -> [4. Collect Diagnostics]
        |
        v
-[5. Analyze Evidence] -> [6. Apply Minimal Fix] -> [7. Rerun Relevant Check]
+[5. Analyze Evidence] -> [6. Apply Minimal Fix] -> [7. Rerun Failing Check (--check)]
                                                           |
                                       +-------------------+-------------------+
                                       | (Passed)                              | (Still Failed)
@@ -126,7 +127,7 @@ When one or more executed checks fail, follow this structured, bounded 9-step li
 Run `run-checks.py [target-project-dir]` to identify project ecosystems, configuration markers, and discoverable validation commands.
 
 #### Step 2: Show Planned Checks (Preview)
-Present the discovered commands, resolved executables, and rationale to the user or conversation log before executing anything. Explain what each check validates (tests, formatting, linting, type-checking, or build).
+Present the discovered commands, resolved executables, and rationale to the user or conversation log before executing anything. Explain what each check validates (tests, formatting, linting, type-checking, or build). You may preview a single check using `--check <name>`.
 
 #### Step 3: Execute Only When Explicitly Authorized
 Execute checks only when the user or operational task explicitly requests execution by passing `--execute`:
@@ -153,12 +154,12 @@ If evidence is sufficient, actionable, and directly relates to the current task:
 #### Step 7: Rerun the Relevant Failing Check
 Immediately rerun only the specific check that failed by providing its exact discovered check name with `--check`:
 ```bash
-python <path-to-skill>/scripts/run-checks.py [target-project-dir] --execute
+python <path-to-skill>/scripts/run-checks.py [target-project-dir] --check <failing-check-name> --execute
 ```
-Using `all checks` (such as `test`, `typecheck`, or `build`) ensures fast feedback on the targeted fix while preventing accidental execution of unselected checks. Do not assume an edit solved the issue without re-executing the check.
+Using `--check <name>` (such as `test`, `typecheck`, or `build`) ensures fast feedback on the targeted fix while preventing accidental execution of unselected checks. Do not assume an edit solved the issue without re-executing the check.
 
 #### Step 8: Rerun Broader Verification Suite
-Once the failing check passes via `all checks`, rerun the broader verification suite across the whole project by omitting `--check`:
+Once the failing check passes via `--check <name>`, rerun the broader verification suite across the whole project by omitting `--check`:
 ```bash
 python <path-to-skill>/scripts/run-checks.py [target-project-dir] --execute
 ```
@@ -193,7 +194,7 @@ To ensure honest accounting, maintain clear boundaries between the three stages 
 2. **Never Repeat Unsuccessful Fixes**:
    - Never apply the same or essentially identical unsuccessful fix twice. Every new attempt must be backed by distinct diagnostic evidence or a different hypothesis.
 3. **Immediate Re-Verification**:
-   - After each repair attempt, immediately rerun the relevant check using `--execute` before taking any further action or modifying any additional files.
+   - After each repair attempt, immediately rerun the relevant check using `--check <failing-check-name> --execute` before taking any further action or modifying any additional files.
 4. **Early Stop Conditions**:
    Stop repair attempts immediately and report findings to the user if:
    - The diagnostic evidence is ambiguous, incomplete, or insufficient to identify root cause.
