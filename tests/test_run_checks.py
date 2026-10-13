@@ -245,6 +245,152 @@ class TestRunChecksDiscovery(unittest.TestCase):
         self.assertIn("Veriflow -- Check Discovery Preview", proc_summary.stdout)
 
 
+class TestRunChecksExecution(unittest.TestCase):
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+        self.root = Path(self.test_dir)
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def test_execute_check_pass(self):
+        check = {
+            "name": "test",
+            "ecosystem": "python",
+            "command": [sys.executable, "-c", "import sys; sys.stdout.write('test-passed'); sys.exit(0)"],
+            "reason": "Test runner simulation",
+            "executed": False,
+            "status": "proposed",
+        }
+        res = execute_check(check, self.root)
+        self.assertTrue(res["executed"])
+        self.assertEqual(res["status"], "PASS")
+        self.assertEqual(res["exit_code"], 0)
+        self.assertEqual(res["stdout"], "test-passed")
+        self.assertEqual(res["stderr"], "")
+        self.assertGreaterEqual(res["duration_seconds"], 0.0)
+        self.assertIsNone(res["error_message"])
+
+    def test_execute_check_fail(self):
+        check = {
+            "name": "lint",
+            "ecosystem": "python",
+            "command": [sys.executable, "-c", "import sys; sys.stderr.write('syntax error on line 1'); sys.exit(2)"],
+            "reason": "Linter simulation",
+            "executed": False,
+            "status": "proposed",
+        }
+        res = execute_check(check, self.root)
+        self.assertTrue(res["executed"])
+        self.assertEqual(res["status"], "FAIL")
+        self.assertEqual(res["exit_code"], 2)
+        self.assertEqual(res["stderr"], "syntax error on line 1")
+        self.assertIn("non-zero return code 2", res["error_message"])
+
+    def test_execute_check_timeout(self):
+        check = {
+            "name": "long_task",
+            "ecosystem": "python",
+            "command": [sys.executable, "-c", "import time; time.sleep(10)"],
+            "reason": "Timeout simulation",
+            "executed": False,
+            "status": "proposed",
+        }
+        res = execute_check(check, self.root, timeout=0.2)
+        self.assertTrue(res["executed"])
+        self.assertEqual(res["status"], "TIMEOUT")
+        self.assertIsNone(res["exit_code"])
+        self.assertIn("timed out after 0.2 seconds", res["error_message"])
+
+    def test_execute_check_command_not_found(self):
+        check = {
+            "name": "missing_tool",
+            "ecosystem": "custom",
+            "command": ["nonexistent_binary_tool_xyz_987654", "--check"],
+            "reason": "Missing binary simulation",
+            "executed": False,
+            "status": "proposed",
+        }
+        res = execute_check(check, self.root)
+        self.assertTrue(res["executed"])
+        self.assertEqual(res["status"], "COMMAND_NOT_FOUND")
+        self.assertIsNone(res["exit_code"])
+        self.assertIn("Executable not found", res["error_message"])
+
+    def test_execute_check_invalid_command_error(self):
+        check = {
+            "name": "invalid",
+            "ecosystem": "custom",
+            "command": [],
+            "reason": "Invalid command list",
+            "executed": False,
+            "status": "proposed",
+        }
+        res = execute_check(check, self.root)
+        self.assertTrue(res["executed"])
+        self.assertEqual(res["status"], "ERROR")
+        self.assertIn("Invalid command format", res["error_message"])
+
+    def test_discover_checks_opt_in_execution_vs_preview(self):
+        pyproject = self.root / "pyproject.toml"
+        pyproject.write_text("[tool.pytest.ini_options]\nminversion = '6.0'\n", encoding="utf-8")
+
+        # 1. Preview mode (execute=False, default)
+        preview = discover_checks(self.root, execute=False)
+        self.assertFalse(preview["executed"])
+        self.assertEqual(preview["discovered_checks"][0]["status"], "proposed")
+        self.assertFalse(preview["discovered_checks"][0]["executed"])
+        self.assertEqual(preview["summary"]["passed"], 0)
+        self.assertEqual(preview["summary"]["total"], 1)
+
+        # 2. Opt-in execution mode (execute=True)
+        executed = discover_checks(self.root, execute=True)
+        self.assertTrue(executed["executed"])
+        self.assertTrue(executed["discovered_checks"][0]["executed"])
+        self.assertIn(executed["discovered_checks"][0]["status"], ("PASS", "FAIL", "COMMAND_NOT_FOUND"))
+        self.assertIn("summary", executed)
+        self.assertEqual(executed["summary"]["total"], 1)
+
+    def test_cli_execute_flag_report(self):
+        (self.root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+        tests_dir = self.root / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_sample.py").write_text("def test_ok(): assert 1 == 1\n", encoding="utf-8")
+
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), str(self.root), "--execute", "--json"],
+            capture_output=True,
+            text=True,
+        )
+        data = json.loads(proc.stdout)
+        self.assertTrue(data["executed"])
+        self.assertIn("summary", data)
+        self.assertEqual(data["summary"]["total"], 1)
+
+    def test_cli_execute_flag_failing_exit_code(self):
+        (self.root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+        tests_dir = self.root / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_bad.py").write_text("def test_fail(): assert False\n", encoding="utf-8")
+
+        proc_exec = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), str(self.root), "--execute"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc_exec.returncode, 1)
+        self.assertIn("Verification Check Execution Report", proc_exec.stdout)
+        self.assertIn("[FAIL]", proc_exec.stdout)
+
+        proc_preview = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), str(self.root)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc_preview.returncode, 0)
+        self.assertIn("Check Discovery Preview", proc_preview.stdout)
+        self.assertIn("proposed (executed: False)", proc_preview.stdout)
+
 
 if __name__ == '__main__':
     unittest.main()
