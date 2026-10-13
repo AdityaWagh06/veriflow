@@ -1239,6 +1239,7 @@ def discover_checks(
     root: Path | str,
     execute: bool = False,
     timeout: int = 30,
+    check_name: str | None = None,
 ) -> dict:
     """
     Discover validation checks for a project.
@@ -1320,6 +1321,21 @@ def discover_checks(
     if not all_checks and not detected_types:
         all_limitations.append("No recognizable project configuration or checks found for the directory.")
 
+    if check_name is not None:
+        target_name = check_name.strip() if isinstance(check_name, str) else check_name
+        available_names = sorted(list({c["name"] for c in all_checks}))
+        matching_checks = [c for c in all_checks if c["name"] == target_name]
+        if not matching_checks:
+            if available_names:
+                avail_str = ", ".join(available_names)
+                raise ValueError(
+                    f"Check '{target_name}' not found. Available checks: {avail_str}."
+                )
+            else:
+                raise ValueError(
+                    f"Check '{target_name}' not found. No checks were discovered for this project."
+                )
+        all_checks = matching_checks
 
     if execute:
         executed_checks = []
@@ -1375,9 +1391,10 @@ def discover_checks(
 def run_checks(
     root: Path | str,
     timeout: int = 30,
+    check_name: str | None = None,
 ) -> dict:
     """Convenience function to discover and execute checks on a project."""
-    return discover_checks(root, execute=True, timeout=timeout)
+    return discover_checks(root, execute=True, timeout=timeout, check_name=check_name)
 
 
 def format_summary(data: dict) -> str:
@@ -1493,6 +1510,7 @@ def main():
         print("  PROJECT_DIRECTORY  Path to the target project (defaults to current directory)")
         print("  --execute          Opt-in to execute discovered checks (default is discovery preview)")
         print("  --timeout SECONDS  Timeout in seconds for each command execution (default: 30)")
+        print("  --check NAME       Filter to preview or execute only the specified check name")
         print("  --json             Output results as formatted JSON")
         print("  -h, --help         Show this help message and exit")
         sys.exit(0)
@@ -1527,7 +1545,18 @@ def main():
                 pass
             i += 1
             continue
-
+        if arg == "--check":
+            if i + 1 < len(sys.argv):
+                check_filter = sys.argv[i + 1]
+                i += 2
+                continue
+            else:
+                print("Error: --check requires a check name argument", file=sys.stderr)
+                sys.exit(1)
+        if arg.startswith("--check="):
+            check_filter = arg.split("=", 1)[1]
+            i += 1
+            continue
         filtered_args.append(arg)
         i += 1
 
@@ -1542,6 +1571,7 @@ def main():
             target_dir,
             execute=do_execute,
             timeout=timeout,
+            check_name=check_filter,
         )
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
