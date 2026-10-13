@@ -42,20 +42,168 @@ def _read_file_safe(path: Path) -> str:
         return ""
 
 
+def _find_python_environment(root: Path) -> dict | None:
+    """
+    Find a project-local virtual environment in the target project root.
+    Only inspects direct subdirectories (e.g. .venv, venv, env)
+    without searching parent directories or unrelated filesystem locations.
+    """
+    venv_candidates = [".venv", "venv", "env"]
+    for name in venv_candidates:
+        candidate = root / name
+        if not candidate.is_dir():
+            continue
+
+        python_candidates = [
+            candidate / "Scripts" / "python.exe",
+            candidate / "Scripts" / "python",
+            candidate / "bin" / "python",
+            candidate / "bin" / "python.exe",
+        ]
+        python_exe = next((p for p in python_candidates if p.is_file()), None)
+
+        scripts_dirs = [d for d in [candidate / "Scripts", candidate / "bin"] if d.is_dir()]
+        if python_exe or scripts_dirs:
+            return {
+                "venv_dir": candidate,
+                "python_exe": python_exe,
+                "scripts_dirs": scripts_dirs,
+            }
+    return None
+
+
+def _find_node_modules_bin(root: Path, tool_name: str) -> Path | None:
+    """
+    Find a project-local executable in node_modules/.bin.
+    Checks Unix and Windows launcher extensions (.cmd, .bat, .exe).
+    """
+    bin_dir = root / "node_modules" / ".bin"
+    if not bin_dir.is_dir():
+        return None
+
+    candidates = [
+        bin_dir / f"{tool_name}.cmd",
+        bin_dir / f"{tool_name}.bat",
+        bin_dir / f"{tool_name}.exe",
+        bin_dir / tool_name,
+    ]
+    for cand in candidates:
+        if cand.is_file():
+            return cand
+    return None
+
+
 def resolve_executable(raw_exe: str, cwd: Path | str, allow_global: bool = True) -> dict:
+    """
+    Resolve an executable using Veriflow's predictable multi-tier policy:
+      1. Project-local Python virtual environment (.venv, venv, env)
+      2. Project-local node_modules/.bin
+      3. Project root direct scripts/wrappers (e.g. gradlew.bat, mvnw)
+      4. System PATH via shutil.which (if allow_global=True)
+      5. Not found
+
+    Returns a dict with:
+      - 'resolved_path': str | None
+      - 'resolution_source': 'project_venv' | 'node_modules' | 'project_root' | 'system_path' | 'not_found'
+      - 'python_exe': str | None (if resolved via a Python venv)
+      - 'venv_dir': str | None
+    """
     cwd_path = Path(cwd).resolve()
-    cand = cwd_path / raw_exe
-    if cand.is_file():
-        return {"resolved_path": str(cand), "resolution_source": "project_root"}
+
+    # Direct file check
+    direct_file = Path(raw_exe)
+    if not direct_file.is_absolute():
+        direct_candidate = (cwd_path / raw_exe).resolve()
+        if direct_candidate.is_file():
+            direct_file = direct_candidate
+    else:
+        direct_file = direct_file.resolve()
+
+    if direct_file.is_file():
+        source = "direct_path"
+        resolved_str = str(direct_file)
+        if resolved_str.startswith(str(cwd_path)):
+            parts = direct_file.parts
+            if any(p in (".venv", "venv", "env") for p in parts):
+                source = "project_venv"
+            elif "node_modules" in parts:
+                source = "node_modules"
+            else:
+                source = "project_root"
+        return {
+            "resolved_path": resolved_str,
+            "resolution_source": source,
+            "python_exe": None,
+            "venv_dir": None,
+        }
+
+    # Tier 1: Project-local Python virtual environment
+    venv_info = _find_python_environment(cwd_path)
+    if venv_info:
+        for sdir in venv_info["scripts_dirs"]:
+            candidates = [
+                sdir / f"{raw_exe}.exe",
+                sdir / f"{raw_exe}.cmd",
+                sdir / f"{raw_exe}.bat",
+                sdir / raw_exe,
+            ]
+            for cand in candidates:
+                if cand.is_file():
+                    return {
+                        "resolved_path": str(cand.resolve()),
+                        "resolution_source": "project_venv",
+                        "python_exe": str(venv_info["python_exe"].resolve()) if venv_info["python_exe"] else None,
+                        "venv_dir": str(venv_info["venv_dir"].resolve()),
+                    }
+
+    # Tier 2: Project-local node_modules/.bin
+    local_bin = _find_node_modules_bin(cwd_path, raw_exe)
+    if local_bin:
+        return {
+            "resolved_path": str(local_bin.resolve()),
+            "resolution_source": "node_modules",
+            "python_exe": None,
+            "venv_dir": None,
+        }
+
+    # Tier 3: Direct project root files (e.g. gradlew.bat, run.cmd)
+    local_candidate = (cwd_path / raw_exe).resolve()
+    if local_candidate.is_file():
+        return {
+            "resolved_path": str(local_candidate),
+            "resolution_source": "project_root",
+            "python_exe": None,
+            "venv_dir": None,
+        }
     if sys.platform == "win32":
         for ext in (".cmd", ".bat", ".exe"):
-            c_ext = cwd_path / f"{raw_exe}{ext}"
-            if c_ext.is_file():
-                return {"resolved_path": str(c_ext), "resolution_source": "project_root"}
-    resolved = shutil.which(raw_exe)
-    if resolved:
-        return {"resolved_path": resolved, "resolution_source": "system_path"}
-    return {"resolved_path": None, "resolution_source": "not_found"}
+            cand_ext = (cwd_path / f"{raw_exe}{ext}").resolve()
+            if cand_ext.is_file():
+                return {
+                    "resolved_path": str(cand_ext),
+                    "resolution_source": "project_root",
+                    "python_exe": None,
+                    "venv_dir": None,
+                }
+
+    # Tier 4: Global PATH
+    if allow_global:
+        global_exe = shutil.which(raw_exe)
+        if global_exe:
+            return {
+                "resolved_path": str(Path(global_exe).resolve()),
+                "resolution_source": "system_path",
+                "python_exe": None,
+                "venv_dir": None,
+            }
+
+    # Tier 5: Not found
+    return {
+        "resolved_path": None,
+        "resolution_source": "not_found",
+        "python_exe": None,
+        "venv_dir": None,
+    }
 
 
 def _discover_python_checks(root: Path) -> tuple[list[dict], list[str]]:
