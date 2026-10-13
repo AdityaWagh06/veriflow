@@ -520,6 +520,138 @@ def _discover_dotnet_checks(root: Path, detection: dict) -> tuple[list[dict], li
 MAX_OUTPUT_LENGTH = 100_000
 
 
+def execute_check(check: dict, cwd: Path | str, timeout: int = 30) -> dict:
+    """
+    Safely execute a single check command using subprocess without shell=True.
+
+    Outcomes:
+      PASS: Process exited with code 0.
+      FAIL: Process exited with non-zero code.
+      TIMEOUT: Process exceeded the timeout limit.
+      COMMAND_NOT_FOUND: Executable was not found on PATH or filesystem.
+      ERROR: Operating system or execution error.
+    """
+    cwd_path = Path(cwd).resolve()
+    result = dict(check)
+    result["executed"] = True
+    result["stdout"] = ""
+    result["stderr"] = ""
+    result["exit_code"] = None
+    result["duration_seconds"] = 0.0
+    result["error_message"] = None
+    result["diagnostics"] = []
+
+    cmd = check.get("command", [])
+    if not cmd or not isinstance(cmd, list):
+        result["status"] = "ERROR"
+        result["error_message"] = "Invalid command format (expected non-empty list of arguments)"
+        result["diagnostics"] = []
+        return result
+
+    raw_exe = cmd[0]
+
+    # Resolve executable using the multi-tier policy
+    if check.get("resolution_source") == "not_found" or ("resolved_executable" in check and check["resolved_executable"] is None):
+        res = resolve_executable(raw_exe, cwd_path)
+        if not res["resolved_path"]:
+            result["status"] = "COMMAND_NOT_FOUND"
+            result["resolved_executable"] = None
+            result["resolution_source"] = "not_found"
+            result["error_message"] = f"Executable not found on system PATH or project environment: '{raw_exe}'"
+            result["diagnostics"] = []
+            return result
+        resolved_exe = res["resolved_path"]
+        result["resolved_executable"] = resolved_exe
+        result["resolution_source"] = res["resolution_source"]
+    elif check.get("resolved_executable") and Path(check["resolved_executable"]).is_file():
+        resolved_exe = check["resolved_executable"]
+        result["resolved_executable"] = resolved_exe
+        result["resolution_source"] = check.get("resolution_source", "unknown")
+    else:
+        res = resolve_executable(raw_exe, cwd_path)
+        if not res["resolved_path"]:
+            result["status"] = "COMMAND_NOT_FOUND"
+            result["resolved_executable"] = None
+            result["resolution_source"] = "not_found"
+            result["error_message"] = f"Executable not found on system PATH or project environment: '{raw_exe}'"
+            result["diagnostics"] = []
+            return result
+        resolved_exe = res["resolved_path"]
+        result["resolved_executable"] = resolved_exe
+        result["resolution_source"] = res["resolution_source"]
+
+    exec_cmd = [resolved_exe] + [str(arg) for arg in cmd[1:]]
+    start_time = time.perf_counter()
+
+    try:
+        proc = subprocess.run(
+            exec_cmd,
+            cwd=str(cwd_path),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            shell=False,
+        )
+        duration = time.perf_counter() - start_time
+        result["duration_seconds"] = round(duration, 3)
+        raw_stdout = proc.stdout or ""
+        raw_stderr = proc.stderr or ""
+        result["stdout"] = _truncate_output(raw_stdout)
+        result["stderr"] = _truncate_output(raw_stderr)
+        result["exit_code"] = proc.returncode
+
+        if proc.returncode == 0:
+            result["status"] = "PASS"
+            result["diagnostics"] = []
+        else:
+            result["status"] = "FAIL"
+            result["error_message"] = f"Process exited with non-zero return code {proc.returncode}"
+            result["diagnostics"] = []
+
+    except subprocess.TimeoutExpired as exc:
+        duration = time.perf_counter() - start_time
+        result["duration_seconds"] = round(duration, 3)
+        result["status"] = "TIMEOUT"
+        stdout_val = exc.stdout or ""
+        stderr_val = exc.stderr or ""
+        stdout_str = stdout_val if isinstance(stdout_val, str) else stdout_val.decode("utf-8", errors="replace")
+        stderr_str = stderr_val if isinstance(stderr_val, str) else stderr_val.decode("utf-8", errors="replace")
+        result["stdout"] = _truncate_output(stdout_str)
+        result["stderr"] = _truncate_output(stderr_str)
+        result["error_message"] = f"Command timed out after {timeout} seconds"
+        result["diagnostics"] = []
+
+    except FileNotFoundError as exc:
+        duration = time.perf_counter() - start_time
+        result["duration_seconds"] = round(duration, 3)
+        result["status"] = "COMMAND_NOT_FOUND"
+        result["error_message"] = f"Executable not found: {exc}"
+        result["diagnostics"] = []
+
+    except PermissionError as exc:
+        duration = time.perf_counter() - start_time
+        result["duration_seconds"] = round(duration, 3)
+        result["status"] = "ERROR"
+        result["error_message"] = f"Permission denied executing '{raw_exe}': {exc}"
+        result["diagnostics"] = []
+
+    except OSError as exc:
+        duration = time.perf_counter() - start_time
+        result["duration_seconds"] = round(duration, 3)
+        result["status"] = "ERROR"
+        result["error_message"] = f"Operating system error executing '{raw_exe}': {exc}"
+        result["diagnostics"] = []
+
+    except Exception as exc:
+        duration = time.perf_counter() - start_time
+        result["duration_seconds"] = round(duration, 3)
+        result["status"] = "ERROR"
+        result["error_message"] = f"Unexpected execution error: {exc}"
+        result["diagnostics"] = []
+
+    return result
+
+
 def discover_checks(
     root: Path | str,
     execute: bool = False,
