@@ -391,6 +391,66 @@ class TestRunChecksExecution(unittest.TestCase):
         self.assertIn("Check Discovery Preview", proc_preview.stdout)
         self.assertIn("proposed (executed: False)", proc_preview.stdout)
 
+    def test_windows_batch_launcher_execution(self):
+        if sys.platform != "win32":
+            self.skipTest("Windows-only batch execution test")
+        bat = self.root / "harmless_tool.bat"
+        bat.write_text("@echo off\necho BATCH_OK: %1\nexit /b 0\n", encoding="utf-8")
+
+        check = {
+            "name": "batch_check",
+            "ecosystem": "custom",
+            "command": [str(bat), "test_arg"],
+            "reason": "Harmless batch test",
+            "executed": False,
+            "status": "proposed",
+        }
+        res = execute_check(check, self.root)
+        self.assertTrue(res["executed"])
+        self.assertEqual(res["status"], "PASS")
+        self.assertEqual(res["exit_code"], 0)
+        self.assertIn("BATCH_OK: test_arg", res["stdout"])
+
+    def test_windows_cmd_launcher_execution_failure(self):
+        if sys.platform != "win32":
+            self.skipTest("Windows-only cmd execution test")
+        cmd_file = self.root / "failing_tool.cmd"
+        cmd_file.write_text("@echo off\necho CMD_FAILURE 1>&2\nexit /b 4\n", encoding="utf-8")
+
+        check = {
+            "name": "cmd_check",
+            "ecosystem": "custom",
+            "command": [str(cmd_file)],
+            "reason": "Harmless failing cmd test",
+            "executed": False,
+            "status": "proposed",
+        }
+        res = execute_check(check, self.root)
+        self.assertTrue(res["executed"])
+        self.assertEqual(res["status"], "FAIL")
+        self.assertEqual(res["exit_code"], 4)
+        self.assertIn("CMD_FAILURE", res["stderr"])
+
+    def test_windows_cwd_relative_batch_launcher_resolution(self):
+        if sys.platform != "win32":
+            self.skipTest("Windows-only launcher resolution test")
+        bat = self.root / "runner.bat"
+        bat.write_text("@echo off\necho RUNNER_CALLED\nexit /b 0\n", encoding="utf-8")
+
+        check = {
+            "name": "local_runner",
+            "ecosystem": "custom",
+            "command": ["runner.bat"],
+            "reason": "Local launcher test",
+            "executed": False,
+            "status": "proposed",
+        }
+        res = execute_check(check, self.root)
+        self.assertTrue(res["executed"])
+        self.assertEqual(res["status"], "PASS")
+        self.assertIn("RUNNER_CALLED", res["stdout"])
+
+
 
 if __name__ == '__main__':
     unittest.main()
