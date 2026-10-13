@@ -677,6 +677,420 @@ def _discover_dotnet_checks(root: Path, detection: dict) -> tuple[list[dict], li
 MAX_OUTPUT_LENGTH = 100_000
 
 
+def _truncate_output(text: str, max_len: int = MAX_OUTPUT_LENGTH) -> str:
+    """Safely cap excessively long process output with an omission notice."""
+    if text and len(text) > max_len:
+        omitted = len(text) - max_len
+        return text[:max_len] + f"\n... [output truncated: {omitted} characters omitted] ..."
+    return text
+
+
+TS_PATTERN_1 = re.compile(
+    r"^((?:[a-zA-Z]:[\\/])?[a-zA-Z0-9_\-./\\ ]+\.[a-zA-Z0-9]+)\((\d+),(\d+)\):\s*error\s+(TS\d+):\s*(.+)$",
+    re.MULTILINE,
+)
+TS_PATTERN_2 = re.compile(
+    r"^((?:[a-zA-Z]:[\\/])?[a-zA-Z0-9_\-./\\ ]+\.[a-zA-Z0-9]+):(\d+):(\d+)\s*(?:-\s*)?error\s+(TS\d+):\s*(.+)$",
+    re.MULTILINE,
+)
+
+ESLINT_COMPACT_1 = re.compile(
+    r"^((?:[a-zA-Z]:[\\/])?[a-zA-Z0-9_\-./\\ ]+\.[a-zA-Z0-9]+):\s*line\s*(\d+),\s*col\s*(\d+),\s*(?:Error|Warning)\s*-\s*(.+?)(?:\s*\(([^)]+)\))?$",
+    re.MULTILINE | re.IGNORECASE,
+)
+ESLINT_COMPACT_2 = re.compile(
+    r"^((?:[a-zA-Z]:[\\/])?[a-zA-Z0-9_\-./\\ ]+\.[a-zA-Z0-9]+):(\d+):(\d+):\s*(?:(?:error|warning)\s+)?(.+?)(?:\s*\[([a-zA-Z0-9\-_/]+)\]|\s*\(([a-zA-Z0-9\-_/]+)\))?$",
+    re.MULTILINE,
+)
+
+RUFF_PATTERN = re.compile(
+    r"^((?:[a-zA-Z]:[\\/])?[a-zA-Z0-9_\-./\\ ]+\.py):(\d+):(\d+):\s+([A-Z]\d+)\s+(.+)$",
+    re.MULTILINE,
+)
+
+MYPY_PATTERN = re.compile(
+    r"^((?:[a-zA-Z]:[\\/])?[a-zA-Z0-9_\-./\\ ]+\.py):(\d+):\s*error:\s*(.+?)(?:\s*\[([a-zA-Z0-9\-_]+)\])?$",
+    re.MULTILINE,
+)
+
+PYTEST_FAILED_LINE = re.compile(
+    r"^FAILED\s+([^:]+)::([^\s]+)\s+-\s+(?:([A-Za-z_][A-Za-z0-9_]*Error|[A-Za-z_][A-Za-z0-9_]*Exception):\s*)?(.+)$",
+    re.MULTILINE,
+)
+
+PY_FRAME_RE = re.compile(r'File\s+"([^"]+)",\s*line\s*(\d+)(?:,\s*in\s*(\w+))?')
+PY_EXC_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception))(?::\s*(.*))?$", re.MULTILINE)
+
+RUST_PATTERN = re.compile(
+    r"^error(?:\[(E\d+)\])?:\s*(.+)\n\s*-->\s+((?:[a-zA-Z]:[\\/])?[^:]+):(\d+):(\d+)",
+    re.MULTILINE,
+)
+
+GO_PATTERN = re.compile(
+    r"^((?:[a-zA-Z]:[\\/])?[a-zA-Z0-9_\-./\\ ]+\.go):(\d+):(\d+):\s*(.+)$",
+    re.MULTILINE,
+)
+
+NODE_MODULE_PATTERN = re.compile(r"Error:\s*Cannot find module ['\"]([^'\"]+)['\"]")
+PY_MODULE_PATTERN = re.compile(r"ModuleNotFoundError:\s*No module named ['\"]([^'\"]+)['\"]")
+
+
+def diagnose_failure(
+    check: dict,
+    stdout: str = "",
+    stderr: str = "",
+    exit_code: int | None = None,
+    status: str = "FAIL",
+) -> list[dict]:
+    """
+    Extract structured diagnostic information from command failure outputs.
+
+    Never invents causes when output is insufficient. Distinguishes parsed
+    evidence from explanations. Returns UNCLASSIFIED if no known pattern matches.
+    """
+    check_info = check if isinstance(check, dict) else {}
+    diagnostics = []
+
+    if status == "TIMEOUT":
+        evidence_text = (stderr or stdout).strip()[:500]
+        return [{
+            "category": "TIMEOUT",
+            "summary": check_info.get("error_message") or "Command execution timed out",
+            "file": None,
+            "line": None,
+            "column": None,
+            "rule": None,
+            "evidence": evidence_text or "Process exceeded execution timeout",
+        }]
+
+    if status == "COMMAND_NOT_FOUND":
+        cmd = check_info.get("command", [])
+        raw_exe = cmd[0] if cmd else "unknown"
+        evidence_text = (stderr or stdout).strip()[:500]
+        return [{
+            "category": "COMMAND_NOT_FOUND",
+            "summary": check_info.get("error_message") or f"Executable not found: '{raw_exe}'",
+            "file": None,
+            "line": None,
+            "column": None,
+            "rule": None,
+            "evidence": evidence_text or check_info.get("error_message") or f"Executable '{raw_exe}' could not be resolved on PATH or project environment",
+        }]
+
+    if status == "ERROR":
+        err_msg = check_info.get("error_message") or "Execution error"
+        evidence_text = (stderr or stdout).strip()[:500] or err_msg
+        return [{
+            "category": "BUILD_ERROR",
+            "summary": err_msg,
+            "file": None,
+            "line": None,
+            "column": None,
+            "rule": None,
+            "evidence": evidence_text,
+        }]
+
+    combined = f"{stdout}\n{stderr}"
+
+    # 1. TypeScript diagnostics
+    for m in TS_PATTERN_1.finditer(combined):
+        diagnostics.append({
+            "category": "TYPE_ERROR",
+            "summary": f"{m.group(4)}: {m.group(5).strip()}",
+            "file": m.group(1).strip(),
+            "line": int(m.group(2)),
+            "column": int(m.group(3)),
+            "rule": m.group(4),
+            "evidence": m.group(0).strip(),
+        })
+
+    for m in TS_PATTERN_2.finditer(combined):
+        diagnostics.append({
+            "category": "TYPE_ERROR",
+            "summary": f"{m.group(4)}: {m.group(5).strip()}",
+            "file": m.group(1).strip(),
+            "line": int(m.group(2)),
+            "column": int(m.group(3)),
+            "rule": m.group(4),
+            "evidence": m.group(0).strip(),
+        })
+
+    # 2. ESLint compact diagnostics
+    for m in ESLINT_COMPACT_1.finditer(combined):
+        rule = m.group(5)
+        msg = m.group(4).strip()
+        summary = f"{msg} ({rule})" if rule else msg
+        diagnostics.append({
+            "category": "LINT_VIOLATION",
+            "summary": summary,
+            "file": m.group(1).strip(),
+            "line": int(m.group(2)),
+            "column": int(m.group(3)),
+            "rule": rule,
+            "evidence": m.group(0).strip(),
+        })
+
+    for m in ESLINT_COMPACT_2.finditer(combined):
+        rule = m.group(4) or m.group(5)
+        msg = m.group(3).strip()
+        summary = f"{msg} ({rule})" if rule else msg
+        diagnostics.append({
+            "category": "LINT_VIOLATION",
+            "summary": summary,
+            "file": m.group(1).strip(),
+            "line": int(m.group(2)),
+            "column": int(m.group(3)),
+            "rule": rule,
+            "evidence": m.group(0).strip(),
+        })
+
+    # 3. ESLint stylish diagnostics
+    stylish_pattern = re.compile(
+        r"^\s*(\d+):(\d+)\s+(error|warning)\s+(.*?)(?:\s{2,}([a-zA-Z0-9\-_/]+))?$",
+        re.IGNORECASE,
+    )
+    file_candidate_exts = (".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs", ".vue", ".svelte", ".astro")
+    curr_file = None
+    for line in combined.splitlines():
+        stripped = line.strip()
+        if stripped and any(stripped.endswith(ext) for ext in file_candidate_exts) and not line.startswith(" "):
+            curr_file = stripped
+            continue
+        sm = stylish_pattern.match(line)
+        if sm and curr_file:
+            rule = sm.group(5)
+            msg = sm.group(4).strip()
+            summary = f"{msg} ({rule})" if rule else msg
+            diagnostics.append({
+                "category": "LINT_VIOLATION",
+                "summary": summary,
+                "file": curr_file,
+                "line": int(sm.group(1)),
+                "column": int(sm.group(2)),
+                "rule": rule,
+                "evidence": line.strip(),
+            })
+
+    # 4. Ruff diagnostics
+    for m in RUFF_PATTERN.finditer(combined):
+        diagnostics.append({
+            "category": "LINT_VIOLATION",
+            "summary": f"{m.group(4)}: {m.group(5).strip()}",
+            "file": m.group(1).strip(),
+            "line": int(m.group(2)),
+            "column": int(m.group(3)),
+            "rule": m.group(4),
+            "evidence": m.group(0).strip(),
+        })
+
+    # 5. Mypy diagnostics
+    for m in MYPY_PATTERN.finditer(combined):
+        rule = m.group(3)
+        msg = m.group(2).strip()
+        summary = f"{msg} [{rule}]" if rule else msg
+        diagnostics.append({
+            "category": "TYPE_ERROR",
+            "summary": summary,
+            "file": m.group(1).strip(),
+            "line": int(m.group(2)),
+            "column": None,
+            "rule": rule,
+            "evidence": m.group(0).strip(),
+        })
+
+    # 6. Pytest failure summary lines
+    pytest_matched_files = set()
+    for m in PYTEST_FAILED_LINE.finditer(combined):
+        test_file = m.group(1).strip()
+        test_name = m.group(2).strip()
+        exc_name = m.group(3)
+        detail = m.group(4).strip()
+        is_assert = (exc_name == "AssertionError") or ("assert" in detail.lower())
+        cat = "TEST_ASSERTION_FAILURE" if is_assert else "PYTHON_TRACEBACK"
+        summary = (
+            f"Assertion failure in {test_name}: {detail}"
+            if is_assert
+            else f"Test failure in {test_name}: {detail}"
+        )
+        pytest_matched_files.add(test_file)
+
+        line_num = None
+        escaped_file = re.escape(test_file)
+        loc_match = re.search(rf"^{escaped_file}:(\d+):", combined, re.MULTILINE)
+        if loc_match:
+            line_num = int(loc_match.group(1))
+
+        diagnostics.append({
+            "category": cat,
+            "summary": summary,
+            "file": test_file,
+            "line": line_num,
+            "column": None,
+            "rule": None,
+            "evidence": m.group(0).strip(),
+        })
+
+    # 7. Python Tracebacks
+    if "Traceback (most recent call last):" in combined:
+        tb_blocks = combined.split("Traceback (most recent call last):")[1:]
+        for block in tb_blocks:
+            frames = list(PY_FRAME_RE.finditer(block))
+            last_frame = frames[-1] if frames else None
+            exc_match = PY_EXC_RE.search(block)
+
+            f_path = last_frame.group(1).strip() if last_frame else None
+            f_line = int(last_frame.group(2)) if last_frame else None
+
+            exc_class = exc_match.group(1) if exc_match else "Exception"
+            exc_msg = exc_match.group(2).strip() if exc_match and exc_match.group(2) else ""
+
+            if exc_class == "AssertionError":
+                cat = "TEST_ASSERTION_FAILURE"
+            elif exc_class == "SyntaxError":
+                cat = "SYNTAX_ERROR"
+            elif exc_class in ("ModuleNotFoundError", "ImportError"):
+                cat = "IMPORT_OR_MODULE_ERROR"
+            else:
+                cat = "PYTHON_TRACEBACK"
+
+            summary = f"{exc_class}: {exc_msg}" if exc_msg else exc_class
+            evidence_lines = []
+            if last_frame:
+                evidence_lines.append(f'File "{f_path}", line {f_line}')
+            if exc_match:
+                evidence_lines.append(exc_match.group(0).strip())
+            evidence = "\n".join(evidence_lines) if evidence_lines else block.strip()[:300]
+
+            if not (f_path in pytest_matched_files and cat == "TEST_ASSERTION_FAILURE"):
+                diagnostics.append({
+                    "category": cat,
+                    "summary": summary,
+                    "file": f_path,
+                    "line": f_line,
+                    "column": None,
+                    "rule": None,
+                    "evidence": evidence,
+                })
+
+    # 8. Python SyntaxError (direct without traceback)
+    if not any(d["category"] == "SYNTAX_ERROR" for d in diagnostics):
+        syn_match = re.search(r'File\s+"([^"]+)",\s*line\s*(\d+).*?\n(?:.*?SyntaxError:\s*(.+))', combined, re.DOTALL)
+        if syn_match:
+            diagnostics.append({
+                "category": "SYNTAX_ERROR",
+                "summary": f"SyntaxError: {syn_match.group(3).strip()}",
+                "file": syn_match.group(1).strip(),
+                "line": int(syn_match.group(2)),
+                "column": None,
+                "rule": None,
+                "evidence": syn_match.group(0).strip()[:300],
+            })
+
+    # 9. Node / Python Module Not Found
+    for m in NODE_MODULE_PATTERN.finditer(combined):
+        mod_name = m.group(1).strip()
+        diagnostics.append({
+            "category": "IMPORT_OR_MODULE_ERROR",
+            "summary": f"Cannot find module '{mod_name}'",
+            "file": None,
+            "line": None,
+            "column": None,
+            "rule": None,
+            "evidence": m.group(0).strip(),
+        })
+
+    for m in PY_MODULE_PATTERN.finditer(combined):
+        mod_name = m.group(1).strip()
+        diagnostics.append({
+            "category": "IMPORT_OR_MODULE_ERROR",
+            "summary": f"No module named '{mod_name}'",
+            "file": None,
+            "line": None,
+            "column": None,
+            "rule": None,
+            "evidence": m.group(0).strip(),
+        })
+
+    # 10. Rust compiler errors
+    for m in RUST_PATTERN.finditer(combined):
+        code = m.group(1)
+        msg = m.group(2).strip()
+        f_path = m.group(3).strip()
+        f_line = int(m.group(4))
+        f_col = int(m.group(5))
+        diagnostics.append({
+            "category": "BUILD_ERROR",
+            "summary": f"{msg} ({code})" if code else msg,
+            "file": f_path,
+            "line": f_line,
+            "column": f_col,
+            "rule": code,
+            "evidence": m.group(0).strip(),
+        })
+
+    # 11. Go build errors
+    for m in GO_PATTERN.finditer(combined):
+        diagnostics.append({
+            "category": "BUILD_ERROR",
+            "summary": m.group(4).strip(),
+            "file": m.group(1).strip(),
+            "line": int(m.group(2)),
+            "column": int(m.group(3)),
+            "rule": None,
+            "evidence": m.group(0).strip(),
+        })
+
+    # Deduplicate diagnostics preserving order
+    deduped = []
+    seen = set()
+    for d in diagnostics:
+        key = (d["category"], d.get("file"), d.get("line"), d.get("summary"))
+        if key not in seen:
+            seen.add(key)
+            deduped.append(d)
+
+    # 12. Fallback: Unclassified failure if non-zero exit and no specific diagnostic
+    if not deduped and status != "PASS":
+        non_empty_stderr = [l.strip() for l in stderr.splitlines() if l.strip()]
+        non_empty_stdout = [l.strip() for l in stdout.splitlines() if l.strip()]
+
+        if non_empty_stderr:
+            first_err = non_empty_stderr[0][:120]
+            summary = (
+                f"Process failed with exit code {exit_code}: {first_err}"
+                if exit_code is not None
+                else first_err
+            )
+            evidence = "\n".join(non_empty_stderr[:5])[:300]
+        elif non_empty_stdout:
+            first_out = non_empty_stdout[0][:120]
+            summary = (
+                f"Process failed with exit code {exit_code}: {first_out}"
+                if exit_code is not None
+                else first_out
+            )
+            evidence = "\n".join(non_empty_stdout[:5])[:300]
+        else:
+            summary = (
+                f"Process failed with exit code {exit_code} (no error output recorded)"
+                if exit_code is not None
+                else "Process failed with no error output"
+            )
+            evidence = ""
+
+        deduped.append({
+            "category": "UNCLASSIFIED",
+            "summary": summary,
+            "file": None,
+            "line": None,
+            "column": None,
+            "rule": None,
+            "evidence": evidence,
+        })
+
+    return deduped
+
+
 def execute_check(check: dict, cwd: Path | str, timeout: int = 30) -> dict:
     """
     Safely execute a single check command using subprocess without shell=True.
@@ -702,7 +1116,7 @@ def execute_check(check: dict, cwd: Path | str, timeout: int = 30) -> dict:
     if not cmd or not isinstance(cmd, list):
         result["status"] = "ERROR"
         result["error_message"] = "Invalid command format (expected non-empty list of arguments)"
-        result["diagnostics"] = []
+        result["diagnostics"] = diagnose_failure(result, status="ERROR")
         return result
 
     raw_exe = cmd[0]
@@ -715,7 +1129,7 @@ def execute_check(check: dict, cwd: Path | str, timeout: int = 30) -> dict:
             result["resolved_executable"] = None
             result["resolution_source"] = "not_found"
             result["error_message"] = f"Executable not found on system PATH or project environment: '{raw_exe}'"
-            result["diagnostics"] = []
+            result["diagnostics"] = diagnose_failure(result, status="COMMAND_NOT_FOUND")
             return result
         resolved_exe = res["resolved_path"]
         result["resolved_executable"] = resolved_exe
@@ -731,7 +1145,7 @@ def execute_check(check: dict, cwd: Path | str, timeout: int = 30) -> dict:
             result["resolved_executable"] = None
             result["resolution_source"] = "not_found"
             result["error_message"] = f"Executable not found on system PATH or project environment: '{raw_exe}'"
-            result["diagnostics"] = []
+            result["diagnostics"] = diagnose_failure(result, status="COMMAND_NOT_FOUND")
             return result
         resolved_exe = res["resolved_path"]
         result["resolved_executable"] = resolved_exe
@@ -763,7 +1177,13 @@ def execute_check(check: dict, cwd: Path | str, timeout: int = 30) -> dict:
         else:
             result["status"] = "FAIL"
             result["error_message"] = f"Process exited with non-zero return code {proc.returncode}"
-            result["diagnostics"] = []
+            result["diagnostics"] = diagnose_failure(
+                result,
+                stdout=result["stdout"],
+                stderr=result["stderr"],
+                exit_code=proc.returncode,
+                status="FAIL",
+            )
 
     except subprocess.TimeoutExpired as exc:
         duration = time.perf_counter() - start_time
@@ -776,35 +1196,41 @@ def execute_check(check: dict, cwd: Path | str, timeout: int = 30) -> dict:
         result["stdout"] = _truncate_output(stdout_str)
         result["stderr"] = _truncate_output(stderr_str)
         result["error_message"] = f"Command timed out after {timeout} seconds"
-        result["diagnostics"] = []
+        result["diagnostics"] = diagnose_failure(
+            result,
+            stdout=result["stdout"],
+            stderr=result["stderr"],
+            exit_code=None,
+            status="TIMEOUT",
+        )
 
     except FileNotFoundError as exc:
         duration = time.perf_counter() - start_time
         result["duration_seconds"] = round(duration, 3)
         result["status"] = "COMMAND_NOT_FOUND"
         result["error_message"] = f"Executable not found: {exc}"
-        result["diagnostics"] = []
+        result["diagnostics"] = diagnose_failure(result, status="COMMAND_NOT_FOUND")
 
     except PermissionError as exc:
         duration = time.perf_counter() - start_time
         result["duration_seconds"] = round(duration, 3)
         result["status"] = "ERROR"
         result["error_message"] = f"Permission denied executing '{raw_exe}': {exc}"
-        result["diagnostics"] = []
+        result["diagnostics"] = diagnose_failure(result, status="ERROR")
 
     except OSError as exc:
         duration = time.perf_counter() - start_time
         result["duration_seconds"] = round(duration, 3)
         result["status"] = "ERROR"
         result["error_message"] = f"Operating system error executing '{raw_exe}': {exc}"
-        result["diagnostics"] = []
+        result["diagnostics"] = diagnose_failure(result, status="ERROR")
 
     except Exception as exc:
         duration = time.perf_counter() - start_time
         result["duration_seconds"] = round(duration, 3)
         result["status"] = "ERROR"
         result["error_message"] = f"Unexpected execution error: {exc}"
-        result["diagnostics"] = []
+        result["diagnostics"] = diagnose_failure(result, status="ERROR")
 
     return result
 
