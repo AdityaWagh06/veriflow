@@ -709,6 +709,238 @@ class TestLocalToolResolution(unittest.TestCase):
         self.assertIn("spaces ok", res_exec["stdout"])
 
 
+class TestFailureDiagnosis(unittest.TestCase):
+    def test_1_python_traceback_and_assertion_diagnosis(self):
+        """1. Python traceback and assertion failure diagnosis."""
+        # Case A: Pytest assertion failure
+        pytest_stdout = """
+=================================== FAILURES ===================================
+___________________________________ test_add ___________________________________
+
+    def test_add():
+>       assert add(2, 3) == 10
+E       assert 5 == 10
+
+tests/test_calc.py:8: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_calc.py::test_add - assert 5 == 10
+============================== 1 failed in 0.05s ===============================
+"""
+        diags_pytest = diagnose_failure(
+            check={"name": "test", "ecosystem": "python"},
+            stdout=pytest_stdout,
+            stderr="",
+            exit_code=1,
+            status="FAIL",
+        )
+        self.assertGreaterEqual(len(diags_pytest), 1)
+        diag = diags_pytest[0]
+        self.assertEqual(diag["category"], "TEST_ASSERTION_FAILURE")
+        self.assertEqual(diag["file"], "tests/test_calc.py")
+        self.assertEqual(diag["line"], 8)
+        self.assertIn("assert 5 == 10", diag["summary"])
+        self.assertIn("FAILED tests/test_calc.py::test_add", diag["evidence"])
+
+        # Case B: Python standard traceback
+        tb_stderr = """
+Traceback (most recent call last):
+  File "app/calculator.py", line 42, in add
+    return a + b
+TypeError: unsupported operand type(s) for +: 'int' and 'str'
+"""
+        diags_tb = diagnose_failure(
+            check={"name": "test", "ecosystem": "python"},
+            stdout="",
+            stderr=tb_stderr,
+            exit_code=1,
+            status="FAIL",
+        )
+        self.assertEqual(len(diags_tb), 1)
+        tb_diag = diags_tb[0]
+        self.assertEqual(tb_diag["category"], "PYTHON_TRACEBACK")
+        self.assertEqual(tb_diag["file"], "app/calculator.py")
+        self.assertEqual(tb_diag["line"], 42)
+        self.assertEqual(tb_diag["summary"], "TypeError: unsupported operand type(s) for +: 'int' and 'str'")
+        self.assertIn("calculator.py", tb_diag["evidence"])
+
+    def test_2_eslint_diagnostic(self):
+        """2. ESLint-style diagnostic."""
+        eslint_stdout = """
+/path/to/project/src/index.js
+  12:5  error  'unused' is defined but never used  no-unused-vars
+  20:10 warning 'console.log' statement found     no-console
+
+✖ 2 problems (1 error, 1 warning)
+"""
+        diags = diagnose_failure(
+            check={"name": "lint", "ecosystem": "javascript"},
+            stdout=eslint_stdout,
+            stderr="",
+            exit_code=1,
+            status="FAIL",
+        )
+        self.assertEqual(len(diags), 2)
+        err_diag = diags[0]
+        self.assertEqual(err_diag["category"], "LINT_VIOLATION")
+        self.assertEqual(err_diag["file"], "/path/to/project/src/index.js")
+        self.assertEqual(err_diag["line"], 12)
+        self.assertEqual(err_diag["column"], 5)
+        self.assertEqual(err_diag["rule"], "no-unused-vars")
+        self.assertIn("'unused' is defined but never used", err_diag["summary"])
+        self.assertIn("12:5", err_diag["evidence"])
+
+        warn_diag = diags[1]
+        self.assertEqual(warn_diag["category"], "LINT_VIOLATION")
+        self.assertEqual(warn_diag["line"], 20)
+        self.assertEqual(warn_diag["column"], 10)
+        self.assertEqual(warn_diag["rule"], "no-console")
+
+    def test_3_typescript_compiler_diagnostic(self):
+        """3. TypeScript compiler diagnostic."""
+        ts_stdout = """
+src/services/api.ts(15,9): error TS2322: Type 'number' is not assignable to type 'string'.
+src/services/api.ts:25:3 - error TS2304: Cannot find name 'fetchData'.
+"""
+        diags = diagnose_failure(
+            check={"name": "typecheck", "ecosystem": "typescript"},
+            stdout=ts_stdout,
+            stderr="",
+            exit_code=2,
+            status="FAIL",
+        )
+        self.assertEqual(len(diags), 2)
+
+        d1 = diags[0]
+        self.assertEqual(d1["category"], "TYPE_ERROR")
+        self.assertEqual(d1["file"], "src/services/api.ts")
+        self.assertEqual(d1["line"], 15)
+        self.assertEqual(d1["column"], 9)
+        self.assertEqual(d1["rule"], "TS2322")
+        self.assertIn("Type 'number' is not assignable to type 'string'", d1["summary"])
+
+        d2 = diags[1]
+        self.assertEqual(d2["category"], "TYPE_ERROR")
+        self.assertEqual(d2["file"], "src/services/api.ts")
+        self.assertEqual(d2["line"], 25)
+        self.assertEqual(d2["column"], 3)
+        self.assertEqual(d2["rule"], "TS2304")
+        self.assertIn("Cannot find name 'fetchData'", d2["summary"])
+
+    def test_4_unrecognized_error_output(self):
+        """4. Unrecognized error output."""
+        unrecognized_stderr = "Anomaly detected: code 0x88FE at memory offset 0x00FF"
+        diags = diagnose_failure(
+            check={"name": "custom_check", "ecosystem": "custom"},
+            stdout="",
+            stderr=unrecognized_stderr,
+            exit_code=1,
+            status="FAIL",
+        )
+        self.assertEqual(len(diags), 1)
+        diag = diags[0]
+        self.assertEqual(diag["category"], "UNCLASSIFIED")
+        self.assertIsNone(diag["file"])
+        self.assertIsNone(diag["line"])
+        self.assertIsNone(diag["column"])
+        self.assertIsNone(diag["rule"])
+        self.assertIn("Process failed with exit code 1", diag["summary"])
+        self.assertEqual(diag["evidence"], unrecognized_stderr)
+
+    def test_5_empty_stderr_with_nonzero_exit_code(self):
+        """5. Empty stderr with a nonzero exit code."""
+        diags = diagnose_failure(
+            check={"name": "silent_fail", "ecosystem": "custom"},
+            stdout="",
+            stderr="",
+            exit_code=137,
+            status="FAIL",
+        )
+        self.assertEqual(len(diags), 1)
+        diag = diags[0]
+        self.assertEqual(diag["category"], "UNCLASSIFIED")
+        self.assertIsNone(diag["file"])
+        self.assertIn("exit code 137 (no error output recorded)", diag["summary"])
+        self.assertEqual(diag["evidence"], "")
+
+    def test_6_multiple_errors_in_one_output(self):
+        """6. Multiple errors in one output."""
+        multi_output = """
+src/models/user.ts(10,5): error TS2322: Type 'null' is not assignable to type 'string'.
+src/models/user.ts(20,5): error TS2339: Property 'age' does not exist on type 'User'.
+src/models/user.ts(30,12): error TS2304: Cannot find name 'Role'.
+"""
+        diags = diagnose_failure(
+            check={"name": "typecheck", "ecosystem": "typescript"},
+            stdout=multi_output,
+            stderr="",
+            exit_code=1,
+            status="FAIL",
+        )
+        self.assertEqual(len(diags), 3)
+        rules = [d["rule"] for d in diags]
+        self.assertEqual(rules, ["TS2322", "TS2339", "TS2304"])
+        lines = [d["line"] for d in diags]
+        self.assertEqual(lines, [10, 20, 30])
+
+    def test_7_truncated_output_handling(self):
+        """7. Truncated output handling."""
+        # Create output exceeding 100,000 characters
+        huge_output = "info log line\n" * 10000 + "src/index.ts(1,1): error TS1005: ';' expected.\n"
+        self.assertGreater(len(huge_output), 100_000)
+
+        check = {
+            "name": "typecheck",
+            "ecosystem": "typescript",
+            "command": ["tsc", "--noEmit"],
+            "executed": False,
+            "status": "proposed",
+        }
+        diags = diagnose_failure(
+            check=check,
+            stdout=huge_output,
+            stderr="",
+            exit_code=1,
+            status="FAIL",
+        )
+        self.assertGreaterEqual(len(diags), 1)
+        self.assertEqual(diags[0]["category"], "TYPE_ERROR")
+        self.assertEqual(diags[0]["rule"], "TS1005")
+
+        truncated = run_checks_module._truncate_output(huge_output)
+        self.assertIn("[output truncated", truncated)
+        self.assertLessEqual(len(truncated), 100_100)
+
+    def test_8_diagnosis_never_changes_files_or_launches_commands(self):
+        """8. Ensuring diagnosis never changes files or launches commands."""
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            canary_file = td_path / "sensitive.txt"
+            canary_file.write_text("initial content", encoding="utf-8")
+            sub_dir = td_path / "sub"
+            sub_dir.mkdir()
+            (sub_dir / "data.json").write_text('{"key": 1}', encoding="utf-8")
+
+            files_before = {p: p.stat().st_mtime_ns for p in td_path.glob("**/*") if p.is_file()}
+
+            # Mock subprocess to fail if called during diagnosis
+            with unittest.mock.patch(
+                "subprocess.run",
+                side_effect=AssertionError("subprocess.run must never be called during diagnosis!"),
+            ):
+                diags = diagnose_failure(
+                    check={"name": "test", "ecosystem": "python"},
+                    stdout="FAILED test_a.py::test_1 - AssertionError: assert 1 == 2",
+                    stderr="",
+                    exit_code=1,
+                    status="FAIL",
+                )
+                self.assertEqual(len(diags), 1)
+
+            files_after = {p: p.stat().st_mtime_ns for p in td_path.glob("**/*") if p.is_file()}
+            self.assertEqual(files_before, files_after)
+            self.assertEqual(canary_file.read_text(encoding="utf-8"), "initial content")
+
+
 
 if __name__ == '__main__':
     unittest.main()
