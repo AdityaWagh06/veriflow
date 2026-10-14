@@ -725,6 +725,7 @@ def _discover_browser_checks(root: Path) -> tuple[list[dict], list[str]]:
                 "reason": f"Discovered browser automation test suite (channel: {env.default_channel})",
                 "resolved_executable": exe,
                 "resolution_source": res["resolution_source"] or "system_path",
+                "timeout": 120,
                 "executed": False,
                 "status": "proposed",
             })
@@ -1416,7 +1417,8 @@ def discover_checks(
     if execute:
         executed_checks = []
         for check in all_checks:
-            executed_check = execute_check(check, root_path, timeout=timeout)
+            check_timeout = check.get("timeout", timeout)
+            executed_check = execute_check(check, root_path, timeout=check_timeout)
             executed_checks.append(executed_check)
 
         summary = {

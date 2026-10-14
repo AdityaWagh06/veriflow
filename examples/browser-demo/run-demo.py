@@ -116,22 +116,18 @@ def run_demo(
                 print(f"Remediation: {env.remediation}", file=sys.stderr)
         return 2
 
-    # Map fault flags to DemoServer kwargs
-    fault_kwargs = {}
+    # Map fault flags to DemoServer fault string
+    server_fault = ""
     if fault == "broken_login":
-        fault_kwargs["fault_broken_login"] = True
+        server_fault = "faulty_redirect"
     elif fault == "open_protected_route":
-        fault_kwargs["fault_open_protected_route"] = True
-    elif fault == "missing_validation":
-        fault_kwargs["fault_missing_validation"] = True
-    elif fault == "broken_link":
-        fault_kwargs["fault_broken_link"] = True
+        server_fault = "broken_auth_guard"
     elif fault == "console_error":
-        fault_kwargs["fault_console_error"] = True
-    elif fault == "server_500":
-        fault_kwargs["fault_server_500"] = True
+        server_fault = "runtime_error"
+    elif fault in ("missing_validation", "broken_link", "server_500"):
+        server_fault = fault
 
-    server = DemoServer(port=0, **fault_kwargs)
+    server = DemoServer(port=0, fault=server_fault)
     base_url = server.start()
 
     selected_channel = channel or env.default_channel
