@@ -90,3 +90,37 @@ Ensure the final report includes:
 - [ ] Recommended next step.
 
 Never mark a check as passed unless it was actually executed and its result was inspected.
+
+---
+
+## 9. Production-Readiness Verification (Catalog-Grounded)
+
+When performing release verification for production web applications, consult the **Production-Readiness Test Catalog** (`references/production-test-catalog.json`):
+
+### Risk-Based Catalog Selection
+- [ ] Inspect application architecture: routes, APIs, roles, data persistence, and existing tests.
+- [ ] Map Critical User Journeys (CUJs) across onboarding, transactions, navigation, and recovery.
+- [ ] Select applicable catalog cases based on explicit applicability rules.
+- [ ] Do NOT test features the application does not have (e.g. OAuth, payments, multi-tenancy, background queues).
+- [ ] Distinguish automation tiers: `automated_available`, `app_specific_automation`, and `manual_review`.
+
+### Behavioral Verification & Journey Tracing
+- [ ] Verify actual runtime behavior, not mere component, file, or route presence.
+- [ ] Trace complete authentication lifecycles: credentials -> API response -> token storage -> redirect -> page load -> refresh -> logout -> protected route denial.
+- [ ] Do not guess or hallucinate expected product behavior; mark ambiguous rules for clarification.
+
+### Capacity Planning & Load Safety
+- [ ] Treat 100,000 users as an architectural capacity model, not a universal test default.
+- [ ] Distinguish registered users, daily visits, concurrent connections, and peak request rate (RPS).
+- [ ] Never claim 100,000 user support based on a unit test, smoke test, or single-user run.
+- [ ] Execute load or stress tests only in an explicitly approved, isolated staging environment with a defined workload. Never test live production or third-party APIs invasively.
+
+### Explicit 7-State Accounting
+- [ ] Classify every evaluated catalog case into: `PASS`, `FAIL`, `BLOCKED`, `NOT_RUN`, `NOT_APPLICABLE`, `MANUAL_REVIEW`, or `UNKNOWN`.
+- [ ] Never treat a missing test, skipped check, or unavailable tool as a pass.
+
+### Release Readiness Gating
+- [ ] Pre-deployment: Run safe static checks, unit/integration suites, production build, and pre-deploy catalog cases.
+- [ ] Post-deployment: Run only authorized, non-destructive smoke checks against the deployed URL.
+- [ ] Emit a Production Readiness Assessment Report with an explicit release verdict: `READY`, `NOT_READY`, or `READY_WITH_ACCEPTED_RISKS`.
+- [ ] Explicitly state safety limitations: verification verifies executed checks under test conditions, never guaranteeing zero defects.

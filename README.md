@@ -101,6 +101,34 @@ See [`examples/repair-demo/README.md`](examples/repair-demo/README.md) for full 
 
 ---
 
+## Production-Readiness Test Catalog
+
+Veriflow includes a research-backed, machine-readable catalog of 135+ production-readiness test cases designed specifically to catch defects in AI-built web applications:
+- **Catalog File**: [`skills/veriflow/references/production-test-catalog.json`](skills/veriflow/references/production-test-catalog.json)
+- **Catalog Guide**: [`skills/veriflow/references/production-test-catalog-guide.md`](skills/veriflow/references/production-test-catalog-guide.md)
+
+### 15 Operational Coverage Categories
+1. **Authentication & Accounts (`AUTH`)**: 15 cases (login valid/invalid/nonexistent, registration, duplicate checks, visibility, forgot password, verification, logout invalidation, session persistence on refresh, token expiry/refresh, deep link redirects, multi-tab sync, submission debouncing).
+2. **Routing & Navigation (`ROUTE`)**: 9 cases (direct route loads, nested SPA refresh rewrites, browser history back/forward, 404 page, route guards, URL encoding, redirect loops, link integrity, mobile drawer).
+3. **Forms & Input Handling (`FORM`)**: 9 cases (required validation, format checking, boundary length, whitespace trimming, Enter submission, double-click prevention, server parity, data retention on error, file uploads).
+4. **Data Integrity & Core Logic (`DATA`)**: 9 cases (full CRUD lifecycle, arithmetic precision, empty states, pagination/virtualization, search/filter idempotency, timezone handling, optimistic rollback, concurrency control, tenant isolation).
+5. **Roles & Authorization (`ROLE`)**: 8 cases (anonymous access, privileged route guards, API authorization, IDOR prevention, dynamic role revocation, UI/backend parity, step-up auth, cross-tenant isolation).
+6. **API & Integration Reliability (`API`)**: 9 cases (schema contract parity, 4xx handling, 5xx error boundaries, timeout cancellation, offline recovery, defensive JSON parsing, 429 rate limiting, 3rd-party outage fallbacks, missing env vars).
+7. **UI Quality & User Experience (`UIUX`)**: 9 cases (dead button detection, 4 view states, horizontal overflow prevention, responsive reflow, modal focus trapping, image fallback, zero console errors, toast deduplication, focus rings).
+8. **Accessibility (`A11Y`)**: 9 cases (keyboard-only navigation, visible focus indicators, semantic heading hierarchy, accessible button names, label binding, WCAG AA contrast, live regions, prefers-reduced-motion).
+9. **Security (`SEC`)**: 11 cases (XSS input reflection defense, SQL/NoSQL injection prevention, CSRF protection, IDOR verification, open redirect defense, secret scanning in bundles, cookie security flags, HTTP security headers, debug trace suppression, safe file uploads, URL query safety). Grounded in OWASP Cheat Sheets and WSTG.
+10. **Performance & Scalability (`PERF`)**: 9 cases (Core Web Vitals LCP/CLS/INP, bundle size budgets, N+1 query detection, DOM node limits, memory leak cleanup, cache headers, DB connection pooling, rate limiting, 100k capacity workload specification).
+11. **Resilience & Reliability (`RESL`)**: 8 cases (DB reconnection, frontend backend-outage fallbacks, circuit breakers, exponential backoff with jitter, graceful SIGTERM shutdown, /health & /ready probes, transaction rollback, disaster recovery backup drill).
+12. **Deployment & Configuration (`CONF`)**: 8 cases (production build check, env var parity, secret exclusion in git, production base URLs, HTTPS/HSTS enforcement, migration idempotency, asset compression, release smoke checklist).
+13. **Search, Metadata & Discoverability (`SEO`)**: 7 cases (title/meta description, canonical tags, robots/sitemap, private route noindex, social OpenGraph/Twitter cards, JSON-LD structured data, semantic 404 status).
+14. **Browser & Network Behavior (`NETW`)**: 7 cases (cross-browser engines Chromium/Firefox/WebKit, CORS origin validation, mixed content elimination, 3rd-party script resilience, cookie scope persistence, unhandled rejection handler, offline/slow-3G fallback).
+15. **Observability & Post-Deployment (`OBSV`)**: 8 cases (structured JSON logging, correlation IDs X-Request-ID, error telemetry, Four Golden Signals metrics, post-deploy smoke, rollback triggers, alerting rules, release verification report). Grounded in Google SRE Launch Checklist.
+
+### Standardized 7-State Accounting
+Every catalog test is classified into: `PASS`, `FAIL`, `BLOCKED`, `NOT_RUN`, `NOT_APPLICABLE`, `MANUAL_REVIEW`, or `UNKNOWN`. Missing tests or unavailable tools are never reported as passing.
+
+---
+
 ## Running the Veriflow Test Suite
 
 Run Veriflow's test suite using Python's standard library `unittest` or `pytest`:
@@ -113,7 +141,7 @@ python -m unittest discover tests -v
 pytest tests -v
 ```
 
-All 68 tests validate project detection, check discovery, execution safety, Windows launchers, local tool discovery, diagnostic parsing, bounded repair specifications, and `--check` filtering.
+All 78 tests across 4 test modules validate project detection, check discovery, execution safety, Windows launchers, local tool discovery, diagnostic parsing, bounded repair specifications, `--check` filtering, and the Production-Readiness Test Catalog schema, completeness, and citations.
 
 ---
 
