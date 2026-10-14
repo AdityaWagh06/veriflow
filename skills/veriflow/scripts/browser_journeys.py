@@ -491,3 +491,185 @@ def test_logout_invalidates_session(page: Any, base_url: str) -> BrowserTestResu
             url=page.url,
             error_message=str(err),
         )
+
+
+# ==============================================================================
+# Routing, Navigation & Link Integrity Journeys
+# ==============================================================================
+
+
+def test_navigation_navbar_links(page: Any, base_url: str) -> BrowserTestResult:
+    """ROUTE-001 / ROUTE-008: All standard navbar links navigate to valid destination pages."""
+    start = time.perf_counter()
+
+    try:
+        page.goto(f"{base_url}/", wait_until="domcontentloaded")
+
+        page.click("#nav-items")
+        page.wait_for_load_state("domcontentloaded")
+        if "/items" not in page.url or "Product Catalog" not in page.content():
+            return BrowserTestResult(
+                test_id="ROUTE-001",
+                name="Navbar link navigation",
+                status="FAIL",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=page.url,
+                error_message="Clicking #nav-items did not load Product Catalog page.",
+            )
+
+        page.click("#nav-login")
+        page.wait_for_load_state("domcontentloaded")
+        if "/login" not in page.url or "Sign In" not in page.content():
+            return BrowserTestResult(
+                test_id="ROUTE-001",
+                name="Navbar link navigation",
+                status="FAIL",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=page.url,
+                error_message="Clicking #nav-login did not load Login page.",
+            )
+
+        page.click("#nav-home")
+        page.wait_for_load_state("domcontentloaded")
+        if "Welcome to Veriflow Demo App" not in page.content():
+            return BrowserTestResult(
+                test_id="ROUTE-001",
+                name="Navbar link navigation",
+                status="FAIL",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=page.url,
+                error_message="Clicking #nav-home did not return to Home page.",
+            )
+
+        return BrowserTestResult(
+            test_id="ROUTE-001",
+            name="Navbar link navigation",
+            status="PASS",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            evidence="Navigated through #nav-items, #nav-login, and #nav-home without broken routes.",
+        )
+    except Exception as err:
+        return BrowserTestResult(
+            test_id="ROUTE-001",
+            name="Navbar link navigation",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            error_message=str(err),
+        )
+
+
+def test_navigation_history_traversal(page: Any, base_url: str) -> BrowserTestResult:
+    """ROUTE-003: Browser back and forward traversal restores previous page states."""
+    start = time.perf_counter()
+
+    try:
+        page.goto(f"{base_url}/", wait_until="domcontentloaded")
+        page.goto(f"{base_url}/items", wait_until="domcontentloaded")
+        page.goto(f"{base_url}/login", wait_until="domcontentloaded")
+
+        page.go_back(wait_until="domcontentloaded")
+        if "/items" not in page.url:
+            return BrowserTestResult(
+                test_id="ROUTE-003",
+                name="Browser history back/forward navigation",
+                status="FAIL",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=page.url,
+                error_message=f"Expected /items after first go_back(), but got {page.url}",
+            )
+
+        page.go_back(wait_until="domcontentloaded")
+        if "Welcome to Veriflow Demo App" not in page.content():
+            return BrowserTestResult(
+                test_id="ROUTE-003",
+                name="Browser history back/forward navigation",
+                status="FAIL",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=page.url,
+                error_message="Expected Home page after second go_back()",
+            )
+
+        page.go_forward(wait_until="domcontentloaded")
+        if "/items" not in page.url:
+            return BrowserTestResult(
+                test_id="ROUTE-003",
+                name="Browser history back/forward navigation",
+                status="FAIL",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=page.url,
+                error_message=f"Expected /items after go_forward(), but got {page.url}",
+            )
+
+        return BrowserTestResult(
+            test_id="ROUTE-003",
+            name="Browser history back/forward navigation",
+            status="PASS",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            evidence="History traversal back and forward accurately transitioned between pages.",
+        )
+    except Exception as err:
+        return BrowserTestResult(
+            test_id="ROUTE-003",
+            name="Browser history back/forward navigation",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            error_message=str(err),
+        )
+
+
+def test_navigation_unknown_route_404(page: Any, base_url: str) -> BrowserTestResult:
+    """ROUTE-004: Unknown route displays helpful 404 page and recovery link."""
+    start = time.perf_counter()
+
+    try:
+        page.goto(f"{base_url}/nonexistent-page-xyz", wait_until="domcontentloaded")
+        content = page.content()
+
+        has_404_heading = "404" in content
+        home_link = page.query_selector("#back-home-link")
+
+        if not has_404_heading or not home_link:
+            return BrowserTestResult(
+                test_id="ROUTE-004",
+                name="Unknown route 404 handling",
+                status="FAIL",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=page.url,
+                error_message="Unknown route did not render expected 404 layout and return link.",
+                evidence=f"Heading 404: {has_404_heading}, Return link: {bool(home_link)}",
+            )
+
+        page.click("#back-home-link")
+        page.wait_for_load_state("domcontentloaded")
+
+        if "Welcome to Veriflow Demo App" not in page.content():
+            return BrowserTestResult(
+                test_id="ROUTE-004",
+                name="Unknown route 404 handling",
+                status="FAIL",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=page.url,
+                error_message="Clicking return-to-home link did not restore home page.",
+            )
+
+        return BrowserTestResult(
+            test_id="ROUTE-004",
+            name="Unknown route 404 handling",
+            status="PASS",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            evidence="Unknown route rendered clear 404 notification and successfully recovered via home link.",
+        )
+    except Exception as err:
+        return BrowserTestResult(
+            test_id="ROUTE-004",
+            name="Unknown route 404 handling",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            error_message=str(err),
+        )
