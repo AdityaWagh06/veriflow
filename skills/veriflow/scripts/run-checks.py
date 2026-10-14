@@ -34,6 +34,25 @@ def _load_detector():
 _detect_project_fn = _load_detector()
 
 
+def _load_browser_detector():
+    """Load detect_browser_environment from browser_detector.py in the same directory."""
+    script_path = Path(__file__).parent / "browser_detector.py"
+    if script_path.is_file():
+        try:
+            spec = importlib.util.spec_from_file_location("browser_detector_module", script_path)
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                sys.modules[spec.name] = mod
+                spec.loader.exec_module(mod)
+                return mod.detect_browser_environment
+        except Exception:
+            return None
+    return None
+
+
+_detect_browser_fn = _load_browser_detector()
+
+
 def _read_file_safe(path: Path) -> str:
     """Read a text file safely, returning empty string on failure."""
     try:
@@ -671,6 +690,59 @@ def _discover_dotnet_checks(root: Path, detection: dict) -> tuple[list[dict], li
             "executed": False,
             "status": "proposed",
         })
+    return checks, limitations
+
+
+def _discover_browser_checks(root: Path) -> tuple[list[dict], list[str]]:
+    """Discover browser automation checks when test files or configs are present."""
+    checks = []
+    limitations = []
+
+    has_playwright_config = (
+        (root / "playwright.config.ts").is_file()
+        or (root / "playwright.config.js").is_file()
+    )
+    has_browser_tests = False
+    tests_dir = root / "tests"
+    if tests_dir.is_dir():
+        try:
+            has_browser_tests = any(tests_dir.glob("test_browser_*.py")) or (tests_dir / "browser").is_dir()
+        except OSError:
+            pass
+
+    if has_playwright_config or has_browser_tests:
+        detector_fn = _load_browser_detector()
+        env = detector_fn(probe_launch=False) if detector_fn else None
+
+        if env and getattr(env, "status", None) == "AVAILABLE":
+            res = resolve_executable("python", root)
+            exe = res["resolved_path"] or sys.executable
+            cmd = [exe, "-m", "unittest", "discover", "tests", "-p", "test_browser_*.py"]
+            checks.append({
+                "name": "browser",
+                "ecosystem": "browser",
+                "command": cmd,
+                "reason": f"Discovered browser automation test suite (channel: {env.default_channel})",
+                "resolved_executable": exe,
+                "resolution_source": res["resolution_source"] or "system_path",
+                "executed": False,
+                "status": "proposed",
+            })
+        elif env:
+            checks.append({
+                "name": "browser",
+                "ecosystem": "browser",
+                "command": ["python", "-m", "unittest", "discover", "tests", "-p", "test_browser_*.py"],
+                "reason": f"Discovered browser test files, but automation is blocked: {env.reason}",
+                "resolved_executable": None,
+                "resolution_source": "not_found",
+                "executed": False,
+                "status": "proposed",
+            })
+            limitations.append(f"Browser testing is BLOCKED: {env.reason} {env.remediation or ''}")
+        else:
+            limitations.append("Browser tests found, but browser detector could not be loaded.")
+
     return checks, limitations
 
 
@@ -1317,6 +1389,10 @@ def discover_checks(
         dotnet_checks, dotnet_limits = _discover_dotnet_checks(root_path, detection)
         all_checks.extend(dotnet_checks)
         all_limitations.extend(dotnet_limits)
+
+    browser_checks, browser_limits = _discover_browser_checks(root_path)
+    all_checks.extend(browser_checks)
+    all_limitations.extend(browser_limits)
 
     if not all_checks and not detected_types:
         all_limitations.append("No recognizable project configuration or checks found for the directory.")
