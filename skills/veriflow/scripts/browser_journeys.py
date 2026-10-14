@@ -811,3 +811,143 @@ def test_form_boundary_input_handling(page: Any, base_url: str) -> BrowserTestRe
             url=page.url,
             error_message=str(err),
         )
+
+
+# ==============================================================================
+# Console Errors & Network Failure Collection Journeys
+# ==============================================================================
+
+
+def test_console_error_collection(page: Any, base_url: str, fault: str = "") -> BrowserTestResult:
+    """UIUX-007: Collects uncaught JavaScript exceptions and browser console errors."""
+    start = time.perf_counter()
+    console_entries: List[BrowserConsoleEntry] = []
+    uncaught_exceptions: List[str] = []
+
+    def handle_console(msg: Any):
+        if msg.type in ("error", "warning"):
+            console_entries.append(
+                BrowserConsoleEntry(
+                    level=msg.type,
+                    text=msg.text,
+                    location=f"{msg.location.get('url', '')}:{msg.location.get('lineNumber', '')}" if msg.location else None,
+                )
+            )
+
+    def handle_pageerror(err: Any):
+        uncaught_exceptions.append(str(err))
+
+    page.on("console", handle_console)
+    page.on("pageerror", handle_pageerror)
+
+    try:
+        url = f"{base_url}/" if not fault else f"{base_url}/?fault={fault}"
+        page.goto(url, wait_until="domcontentloaded")
+        page.wait_for_timeout(300)
+
+        total_errors = len([c for c in console_entries if c.level == "error"]) + len(uncaught_exceptions)
+        if total_errors > 0:
+            error_details = "; ".join([c.text for c in console_entries if c.level == "error"] + uncaught_exceptions)
+            return BrowserTestResult(
+                test_id="UIUX-007",
+                name="Browser console error detection",
+                status="FAIL",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=page.url,
+                error_message=f"Detected {total_errors} browser console error(s) or uncaught exception(s).",
+                evidence=error_details,
+                console_messages=console_entries,
+            )
+
+        return BrowserTestResult(
+            test_id="UIUX-007",
+            name="Browser console error detection",
+            status="PASS",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            evidence="Zero browser console errors or uncaught exceptions detected.",
+            console_messages=console_entries,
+        )
+    except Exception as err:
+        return BrowserTestResult(
+            test_id="UIUX-007",
+            name="Browser console error detection",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            error_message=str(err),
+            console_messages=console_entries,
+        )
+
+
+def test_network_failure_collection(page: Any, base_url: str, request_faulty_endpoint: bool = False) -> BrowserTestResult:
+    """UIUX-008 / NETW-003: Collects HTTP failures (status >= 400) and failed network requests."""
+    start = time.perf_counter()
+    network_failures: List[BrowserNetworkFailure] = []
+
+    def handle_response(response: Any):
+        if response.status >= 400:
+            network_failures.append(
+                BrowserNetworkFailure(
+                    url=response.url,
+                    method=response.request.method,
+                    status=response.status,
+                    error_text=f"HTTP {response.status} {response.status_text}",
+                )
+            )
+
+    def handle_request_failed(request: Any):
+        network_failures.append(
+            BrowserNetworkFailure(
+                url=request.url,
+                method=request.method,
+                status=None,
+                error_text=request.failure or "Network request failed",
+            )
+        )
+
+    page.on("response", handle_response)
+    page.on("requestfailed", handle_request_failed)
+
+    try:
+        page.goto(f"{base_url}/", wait_until="domcontentloaded")
+
+        if request_faulty_endpoint:
+            page.evaluate("fetch('/api/fail-500').catch(() => {})")
+            page.wait_for_timeout(300)
+        else:
+            page.evaluate("fetch('/api/health')")
+            page.wait_for_timeout(300)
+
+        if network_failures:
+            first_fail = network_failures[0]
+            return BrowserTestResult(
+                test_id="UIUX-008",
+                name="Network failure collection",
+                status="FAIL",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=page.url,
+                error_message=f"Detected {len(network_failures)} failed network request(s).",
+                evidence=f"Failed request: [{first_fail.status or 'ERR'}] {first_fail.method} {first_fail.url}",
+                network_failures=network_failures,
+            )
+
+        return BrowserTestResult(
+            test_id="UIUX-008",
+            name="Network failure collection",
+            status="PASS",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            evidence="All network requests completed without 4xx/5xx failures.",
+            network_failures=network_failures,
+        )
+    except Exception as err:
+        return BrowserTestResult(
+            test_id="UIUX-008",
+            name="Network failure collection",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            error_message=str(err),
+            network_failures=network_failures,
+        )
