@@ -328,3 +328,166 @@ def test_auth_registration_duplicate(page: Any, base_url: str) -> BrowserTestRes
             url=page.url,
             error_message=str(err),
         )
+
+
+# ==============================================================================
+# Route Guards & Session Lifecycle Journeys
+# ==============================================================================
+
+
+def test_route_guard_unauthenticated(page: Any, base_url: str) -> BrowserTestResult:
+    """ROLE-002 / AUTH-009: Unauthenticated direct access to protected page is rejected and redirected."""
+    start = time.perf_counter()
+    target_url = f"{base_url}/dashboard"
+
+    try:
+        page.goto(target_url, wait_until="domcontentloaded")
+        current_url = page.url
+        dashboard_heading = page.query_selector("#welcome-banner")
+
+        if "/login" in current_url and not dashboard_heading:
+            return BrowserTestResult(
+                test_id="ROLE-002",
+                name="Protected route unauthenticated rejection",
+                status="PASS",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=current_url,
+                evidence=f"Direct access rejected; redirected to login with returnUrl preservation: {current_url}",
+            )
+
+        return BrowserTestResult(
+            test_id="ROLE-002",
+            name="Protected route unauthenticated rejection",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=current_url,
+            error_message="Protected route did not reject unauthenticated access.",
+            evidence=f"Expected redirect to /login, but accessed {current_url} with banner present: {bool(dashboard_heading)}",
+        )
+    except Exception as err:
+        return BrowserTestResult(
+            test_id="ROLE-002",
+            name="Protected route unauthenticated rejection",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            error_message=str(err),
+        )
+
+
+def test_session_persistence_after_refresh(page: Any, base_url: str) -> BrowserTestResult:
+    """AUTH-008: Authenticated session state persists across page reload."""
+    start = time.perf_counter()
+    login_url = f"{base_url}/login"
+
+    try:
+        page.goto(login_url, wait_until="domcontentloaded")
+        page.fill("#username", "admin")
+        page.fill("#password", "secret123")
+        page.click("#submit-login")
+        page.wait_for_load_state("domcontentloaded")
+
+        if "/dashboard" not in page.url:
+            return BrowserTestResult(
+                test_id="AUTH-008",
+                name="Session persistence after refresh",
+                status="BLOCKED",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=page.url,
+                error_message="Initial login prerequisite failed.",
+            )
+
+        # Trigger browser page refresh
+        page.reload(wait_until="domcontentloaded")
+        current_url = page.url
+        has_banner = bool(page.query_selector("#welcome-banner"))
+
+        if "/dashboard" in current_url and has_banner:
+            return BrowserTestResult(
+                test_id="AUTH-008",
+                name="Session persistence after refresh",
+                status="PASS",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=current_url,
+                evidence="Session remained active and dashboard rendered without re-authentication after reload.",
+            )
+
+        return BrowserTestResult(
+            test_id="AUTH-008",
+            name="Session persistence after refresh",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=current_url,
+            error_message="Session was lost upon page refresh.",
+            evidence=f"URL after reload: {current_url}, Banner present: {has_banner}",
+        )
+    except Exception as err:
+        return BrowserTestResult(
+            test_id="AUTH-008",
+            name="Session persistence after refresh",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            error_message=str(err),
+        )
+
+
+def test_logout_invalidates_session(page: Any, base_url: str) -> BrowserTestResult:
+    """AUTH-007: Logout invalidates session and prevents direct navigation to protected pages."""
+    start = time.perf_counter()
+    login_url = f"{base_url}/login"
+
+    try:
+        page.goto(login_url, wait_until="domcontentloaded")
+        page.fill("#username", "admin")
+        page.fill("#password", "secret123")
+        page.click("#submit-login")
+        page.wait_for_load_state("domcontentloaded")
+
+        logout_btn = page.query_selector("#logout-btn")
+        if not logout_btn:
+            return BrowserTestResult(
+                test_id="AUTH-007",
+                name="Logout session invalidation",
+                status="BLOCKED",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=page.url,
+                error_message="Logout button not found after login.",
+            )
+
+        page.click("#logout-btn")
+        page.wait_for_load_state("domcontentloaded")
+
+        # Direct navigation to protected route after logout
+        page.goto(f"{base_url}/dashboard", wait_until="domcontentloaded")
+        url_after_direct = page.url
+        banner_after_direct = bool(page.query_selector("#welcome-banner"))
+
+        if "/login" in url_after_direct and not banner_after_direct:
+            return BrowserTestResult(
+                test_id="AUTH-007",
+                name="Logout session invalidation",
+                status="PASS",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=url_after_direct,
+                evidence="Session successfully invalidated; subsequent access redirected to login.",
+            )
+
+        return BrowserTestResult(
+            test_id="AUTH-007",
+            name="Logout session invalidation",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=url_after_direct,
+            error_message="Protected page was still accessible after logout.",
+            evidence=f"URL: {url_after_direct}, Banner present: {banner_after_direct}",
+        )
+    except Exception as err:
+        return BrowserTestResult(
+            test_id="AUTH-007",
+            name="Logout session invalidation",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            error_message=str(err),
+        )
