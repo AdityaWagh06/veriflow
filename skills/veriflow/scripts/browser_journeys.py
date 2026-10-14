@@ -18,12 +18,20 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List, Optional
 
-from skills.veriflow.scripts.browser_detector import detect_browser_environment
-from skills.veriflow.scripts.browser_reporter import (
-    BrowserConsoleEntry,
-    BrowserNetworkFailure,
-    BrowserTestResult,
-)
+try:
+    from skills.veriflow.scripts.browser_detector import detect_browser_environment
+    from skills.veriflow.scripts.browser_reporter import (
+        BrowserConsoleEntry,
+        BrowserNetworkFailure,
+        BrowserTestResult,
+    )
+except ImportError:
+    from browser_detector import detect_browser_environment
+    from browser_reporter import (
+        BrowserConsoleEntry,
+        BrowserNetworkFailure,
+        BrowserTestResult,
+    )
 
 
 def launch_browser_context(playwright: Any, channel: Optional[str] = None, headless: bool = True):
