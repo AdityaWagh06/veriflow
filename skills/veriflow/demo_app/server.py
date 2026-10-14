@@ -21,7 +21,9 @@ from urllib.parse import parse_qs, urlparse
 class DemoAppHandler(BaseHTTPRequestHandler):
     """HTTP request handler for Veriflow demo web application."""
 
-    server_config: Dict[str, Any] = {}
+    @property
+    def server_config(self) -> Dict[str, Any]:
+        return getattr(self.server, "server_config", {})
 
     def log_message(self, format: str, *args: Any) -> None:
         """Suppress standard HTTP server logging to keep test output clean."""
@@ -347,9 +349,8 @@ class DemoServer:
         self._thread: Optional[threading.Thread] = None
 
     def start(self) -> str:
-        handler_class = DemoAppHandler
-        handler_class.server_config = {"fault": self.fault}
-        self._server = HTTPServer((self.host, self.port), handler_class)
+        self._server = HTTPServer((self.host, self.port), DemoAppHandler)
+        self._server.server_config = {"fault": self.fault}
         self.port = self._server.server_address[1]
 
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
