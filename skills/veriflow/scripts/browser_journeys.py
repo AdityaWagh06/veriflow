@@ -1042,3 +1042,56 @@ def test_responsive_desktop_viewport(page: Any, base_url: str) -> BrowserTestRes
             url=page.url,
             error_message=str(err),
         )
+
+
+# ==============================================================================
+# Catalog-to-Browser Mapping & Dispatcher
+# ==============================================================================
+
+_JOURNEY_FUNCTIONS = {
+    "AUTH-001": test_auth_valid_login,
+    "AUTH-002": test_auth_invalid_login,
+    "AUTH-003": test_auth_nonexistent_account,
+    "AUTH-005": test_auth_registration_duplicate,
+    "AUTH-006": test_auth_password_toggle,
+    "AUTH-007": test_logout_invalidates_session,
+    "AUTH-008": test_session_persistence_after_refresh,
+    "ROLE-002": test_route_guard_unauthenticated,
+    "ROUTE-001": test_navigation_navbar_links,
+    "ROUTE-003": test_navigation_history_traversal,
+    "ROUTE-004": test_navigation_unknown_route_404,
+    "FORM-001": test_form_required_validation,
+    "FORM-003": test_form_boundary_input_handling,
+    "FORM-005": test_form_keyboard_submission,
+    "UIUX-004": test_responsive_mobile_viewport,
+    "UIUX-007": test_console_error_collection,
+    "UIUX-008": test_network_failure_collection,
+}
+
+
+def get_browser_catalog_mappings() -> List[Dict[str, Any]]:
+    """Loads and returns the catalog-to-browser automation mapping index."""
+    from pathlib import Path
+    import json
+
+    mapping_path = (
+        Path(__file__).parent.parent / "references" / "browser-test-mapping.json"
+    )
+    if not mapping_path.exists():
+        return []
+    with open(mapping_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data.get("mappings", [])
+
+
+def run_catalog_browser_test(catalog_id: str, page: Any, base_url: str) -> BrowserTestResult:
+    """Dispatches execution to the corresponding browser journey function by catalog ID."""
+    fn = _JOURNEY_FUNCTIONS.get(catalog_id)
+    if not fn:
+        return BrowserTestResult(
+            test_id=catalog_id,
+            name=f"Catalog test {catalog_id}",
+            status="NOT_APPLICABLE",
+            evidence=f"No automated browser test implementation mapped for {catalog_id}",
+        )
+    return fn(page, base_url)
