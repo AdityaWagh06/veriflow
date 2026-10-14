@@ -951,3 +951,94 @@ def test_network_failure_collection(page: Any, base_url: str, request_faulty_end
             error_message=str(err),
             network_failures=network_failures,
         )
+
+
+# ==============================================================================
+# Responsive Viewports & Mobile Layout Journeys
+# ==============================================================================
+
+
+def test_responsive_mobile_viewport(page: Any, base_url: str) -> BrowserTestResult:
+    """UIUX-004: Mobile viewport (375x667) renders without unintended horizontal page overflow."""
+    start = time.perf_counter()
+
+    try:
+        page.set_viewport_size({"width": 375, "height": 667})
+        page.goto(f"{base_url}/", wait_until="domcontentloaded")
+
+        overflow_info = page.evaluate(
+            """() => {
+                const scrollW = document.documentElement.scrollWidth;
+                const clientW = document.documentElement.clientWidth;
+                return { hasOverflow: scrollW > clientW, scrollWidth: scrollW, clientWidth: clientW };
+            }"""
+        )
+
+        if overflow_info.get("hasOverflow", False):
+            return BrowserTestResult(
+                test_id="UIUX-004",
+                name="Mobile viewport overflow validation",
+                status="FAIL",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=page.url,
+                error_message="Detected horizontal page overflow on mobile viewport (375x667).",
+                evidence=f"scrollWidth ({overflow_info['scrollWidth']}px) > clientWidth ({overflow_info['clientWidth']}px)",
+            )
+
+        return BrowserTestResult(
+            test_id="UIUX-004",
+            name="Mobile viewport overflow validation",
+            status="PASS",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            evidence=f"Mobile viewport reflowed cleanly: scrollWidth={overflow_info['scrollWidth']}px, clientWidth={overflow_info['clientWidth']}px.",
+        )
+    except Exception as err:
+        return BrowserTestResult(
+            test_id="UIUX-004",
+            name="Mobile viewport overflow validation",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            error_message=str(err),
+        )
+
+
+def test_responsive_desktop_viewport(page: Any, base_url: str) -> BrowserTestResult:
+    """UIUX-004: Desktop viewport (1280x800) renders primary navigation and content areas properly."""
+    start = time.perf_counter()
+
+    try:
+        page.set_viewport_size({"width": 1280, "height": 800})
+        page.goto(f"{base_url}/", wait_until="domcontentloaded")
+
+        nav_visible = page.is_visible("#main-nav")
+        title_visible = page.is_visible("#page-title")
+
+        if nav_visible and title_visible:
+            return BrowserTestResult(
+                test_id="UIUX-004",
+                name="Desktop viewport layout validation",
+                status="PASS",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=page.url,
+                evidence="Desktop layout verified: main navigation and primary content container are visible.",
+            )
+
+        return BrowserTestResult(
+            test_id="UIUX-004",
+            name="Desktop viewport layout validation",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            error_message="Expected navigation or title elements were not visible in desktop viewport.",
+        )
+    except Exception as err:
+        return BrowserTestResult(
+            test_id="UIUX-004",
+            name="Desktop viewport layout validation",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            error_message=str(err),
+        )
