@@ -124,3 +124,51 @@ When performing release verification for production web applications, consult th
 - [ ] Post-deployment: Run only authorized, non-destructive smoke checks against the deployed URL.
 - [ ] Emit a Production Readiness Assessment Report with an explicit release verdict: `READY`, `NOT_READY`, or `READY_WITH_ACCEPTED_RISKS`.
 - [ ] Explicitly state safety limitations: verification verifies executed checks under test conditions, never guaranteeing zero defects.
+
+---
+
+## 10. Browser and User-Journey Verification (Phase 2)
+
+When verifying web applications through client-side browser automation:
+
+### Tool Availability & Opt-in Policy
+- [ ] **Check Tool Availability**: Verify whether Playwright and browser channels (`chrome`, `msedge`, `chromium`) are present.
+- [ ] **Zero Automatic Installations**: Never automatically invoke `pip install` or download browser binaries behind the user's back.
+- [ ] **Proper State Classification**: If tools are missing, classify tests as `BLOCKED` with clear remediation commands; never treat missing tools as `PASS`.
+- [ ] **Preview-Only by Default**: Confirm planned browser checks in preview mode before launching a browser process.
+- [ ] **Explicit Authorization Required**: Require explicit `--execute` authorization to launch browser windows or headless instances.
+
+### Safety & Secret Masking
+- [ ] **Credential Masking**: Ensure passwords, bearer tokens, authentication cookies, and session headers are redacted (`[REDACTED]`) from diagnostic summaries and JSON reports.
+- [ ] **Target Authorization**: Execute browser automation only against local fixtures or authorized staging URLs. Never perform destructive browser journeys on production environments.
+
+### Core User Journey Verification
+- [ ] **Authentication Journeys**:
+  - Valid credentials authenticate and render user welcome UI (`AUTH-001`).
+  - Invalid credentials display visible, actionable error feedback (`AUTH-002`).
+  - Nonexistent accounts provide registration or password recovery links (`AUTH-003`).
+  - Password visibility toggle reveals and obscures text safely (`AUTH-006`).
+- [ ] **Route Protection & Session Persistence**:
+  - Protected routes reject unauthenticated access and redirect to login (`ROLE-002`).
+  - Active session persists across browser page reload (`AUTH-008`).
+  - Logout clears cookies/tokens and invalidates access; back-navigation is rejected (`AUTH-007`).
+- [ ] **Navigation & Route Traversal**:
+  - Primary navigation links navigate to valid destinations without broken links (`ROUTE-001`).
+  - Browser back and forward buttons navigate history without crashing state (`ROUTE-003`).
+  - Non-existent routes render a 404 page with a recovery link back to safety (`ROUTE-004`).
+- [ ] **Form Validation & Boundary Handling**:
+  - Required fields prevent submission and highlight missing inputs (`FORM-001`).
+  - Registration catches duplicate username or email conflicts (`AUTH-005`).
+  - Forms retain user input after recoverable server errors.
+  - Boundary input (long strings, special characters) is handled gracefully (`FORM-003`).
+  - Forms support keyboard submission via Enter key (`FORM-005`).
+- [ ] **Client Telemetry & Console Health**:
+  - Capture and report unhandled client-side JavaScript console errors (`UIUX-007`).
+  - Capture and report failed background network requests and HTTP 5xx responses (`UIUX-008`).
+- [ ] **Responsive Viewport Reflow**:
+  - Test mobile viewport (`375x667`) for horizontal scroll overflow and layout breaks (`UIUX-004`).
+
+### Fault Injection & Bounded Repair
+- [ ] **Validate Real Failure Detection**: Verify browser checks genuinely fail when defects are present (e.g. broken login destination, bypassed route guard, unhandled runtime exception) rather than silently passing.
+- [ ] **Trace Diagnostics to Root Cause**: Use captured URL, page title, failed selector, and console traces to diagnose root causes in Step 5 of the repair lifecycle.
+- [ ] **Targeted Re-Verification**: Re-run the specific failing journey via `--check browser --execute` or `run-browser-tests.py --filter <id> --execute` immediately after applying fixes.
