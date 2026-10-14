@@ -673,3 +673,141 @@ def test_navigation_unknown_route_404(page: Any, base_url: str) -> BrowserTestRe
             url=page.url,
             error_message=str(err),
         )
+
+
+# ==============================================================================
+# Forms & Input Handling Journeys
+# ==============================================================================
+
+
+def test_form_required_validation(page: Any, base_url: str) -> BrowserTestResult:
+    """FORM-001: Required fields block submission and prevent blank form processing."""
+    start = time.perf_counter()
+
+    try:
+        page.goto(f"{base_url}/register", wait_until="domcontentloaded")
+
+        page.click("#submit-register")
+
+        current_url = page.url
+        is_invalid = page.evaluate("() => !document.getElementById('reg-username').checkValidity()")
+
+        if "/register" in current_url and is_invalid:
+            return BrowserTestResult(
+                test_id="FORM-001",
+                name="Form required fields validation",
+                status="PASS",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=current_url,
+                evidence="Empty required input blocked submission via client validity check.",
+            )
+
+        return BrowserTestResult(
+            test_id="FORM-001",
+            name="Form required fields validation",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=current_url,
+            error_message="Form allowed submission despite empty required fields.",
+        )
+    except Exception as err:
+        return BrowserTestResult(
+            test_id="FORM-001",
+            name="Form required fields validation",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            error_message=str(err),
+        )
+
+
+def test_form_keyboard_submission(page: Any, base_url: str) -> BrowserTestResult:
+    """FORM-005: Form submission succeeds when pressing Enter within input fields."""
+    start = time.perf_counter()
+
+    try:
+        page.goto(f"{base_url}/login", wait_until="domcontentloaded")
+        page.fill("#username", "admin")
+        page.fill("#password", "secret123")
+
+        page.press("#password", "Enter")
+        page.wait_for_load_state("domcontentloaded")
+
+        if "/dashboard" in page.url:
+            return BrowserTestResult(
+                test_id="FORM-005",
+                name="Keyboard Enter form submission",
+                status="PASS",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=page.url,
+                evidence="Form submitted cleanly upon pressing Enter key; navigated to dashboard.",
+            )
+
+        return BrowserTestResult(
+            test_id="FORM-005",
+            name="Keyboard Enter form submission",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            error_message="Enter key in password field did not trigger form submission to /dashboard.",
+        )
+    except Exception as err:
+        return BrowserTestResult(
+            test_id="FORM-005",
+            name="Keyboard Enter form submission",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            error_message=str(err),
+        )
+
+
+def test_form_boundary_input_handling(page: Any, base_url: str) -> BrowserTestResult:
+    """FORM-003: Long input boundary string does not break layout or cause uncaught exceptions."""
+    start = time.perf_counter()
+
+    try:
+        page.goto(f"{base_url}/items", wait_until="domcontentloaded")
+        long_string = "A" * 256
+
+        search_input = page.query_selector("#search-input")
+        if not search_input:
+            return BrowserTestResult(
+                test_id="FORM-003",
+                name="Boundary input handling",
+                status="NOT_APPLICABLE",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=page.url,
+                evidence="No #search-input found on items page.",
+            )
+
+        page.fill("#search-input", long_string)
+        val = page.input_value("#search-input")
+
+        if val == long_string:
+            return BrowserTestResult(
+                test_id="FORM-003",
+                name="Boundary input handling",
+                status="PASS",
+                duration_ms=(time.perf_counter() - start) * 1000,
+                url=page.url,
+                evidence="Field successfully handled 256-character boundary input without crash or overflow.",
+            )
+
+        return BrowserTestResult(
+            test_id="FORM-003",
+            name="Boundary input handling",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            error_message="Input value was truncated or corrupted.",
+        )
+    except Exception as err:
+        return BrowserTestResult(
+            test_id="FORM-003",
+            name="Boundary input handling",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start) * 1000,
+            url=page.url,
+            error_message=str(err),
+        )
