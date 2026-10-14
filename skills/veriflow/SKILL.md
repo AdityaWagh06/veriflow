@@ -411,6 +411,59 @@ All production test cases and verification guidelines are grounded in establishe
 - **Google web.dev Core Web Vitals**: [https://web.dev/articles/vitals](https://web.dev/articles/vitals)
 - **Google SRE Launch Checklist**: [https://sre.google/sre-book/launch-checklist/](https://sre.google/sre-book/launch-checklist/)
 
+### 8. Browser and User-Journey Verification Engine (Phase 2)
+
+AI coding agents commonly produce web applications that appear complete or pass unit tests, but fail in production on real user journeys. Veriflow integrates an incremental, opt-in **Browser and User-Journey Automation Engine** powered by Playwright to test real browser behavior.
+
+#### Why Browser Testing is Essential
+- **Beyond Shallow Code Inspection**: Verifies that buttons actually trigger actions, routes properly guard protected resources, forms render server validation errors, and sessions persist across page refreshes.
+- **Client-Side Telemetry**: Collects unhandled client-side JavaScript console errors and failed background network requests (4xx/5xx).
+- **Responsive Layout Verification**: Tests desktop and mobile viewports (`375x667`) to detect horizontal scroll overflow and layout breaks.
+
+#### Safety & Dependency Rules
+1. **Playwright is Strictly Optional**: Browser testing is not a hard dependency for Veriflow. If Playwright or browser binaries are missing, Veriflow reports `BLOCKED` with clear remediation commands rather than failing or crashing.
+2. **Zero Automatic Installations**: Veriflow will never execute `pip install` or download browser binaries automatically.
+3. **Preview-Only by Default**: Like all Veriflow checks, browser checks run in preview mode by default. Explicit `--execute` authorization is required to launch browser processes.
+4. **Credential & Secret Redaction**: Passwords, session cookies, authorization headers, and bearer tokens are automatically masked (`[REDACTED]`) from logs, diagnostics, and reports.
+5. **No Destructive External Testing**: Browser tests execute only against local fixtures or explicitly authorized staging URLs. Never run destructive actions against production systems.
+
+#### The 15 Core User Journeys
+The engine provides reusable test templates for the most critical user journeys:
+1. **Valid Login Journey** (`AUTH-001`): Form accepts valid credentials and renders post-login welcome UI.
+2. **Invalid Login Handling** (`AUTH-002`): Invalid credentials produce clear, actionable error feedback.
+3. **Nonexistent Account Handling** (`AUTH-003`): Unrecognized account prompt offers registration or recovery.
+4. **Post-Authentication Redirection**: Authenticated user is navigated to originally requested destination.
+5. **Duplicate Registration Validation** (`AUTH-005`): Validates required fields and catches duplicate username/email conflicts.
+6. **Protected Route Guard Enforcement** (`ROLE-002`): Unauthenticated requests to protected pages are rejected.
+7. **Logout Session Invalidation** (`AUTH-007`): Logout invalidates session tokens; back-navigation is rejected.
+8. **Session Persistence Across Reload** (`AUTH-008`): Authenticated session survives full browser page refresh.
+9. **History Traversal** (`ROUTE-003`): Browser back and forward buttons navigate history without breaking state.
+10. **404 Route Recovery** (`ROUTE-004`): Unknown routes render a helpful 404 page with recovery navigation.
+11. **Form Input Retention**: Forms retain valid input fields after recoverable validation errors.
+12. **Primary Navigation Links** (`ROUTE-001`): Navbar links navigate to valid destinations without broken links.
+13. **Browser Console Error Telemetry** (`UIUX-007`): Intercepts unhandled console errors and runtime exceptions.
+14. **Failed Network Request Telemetry** (`UIUX-008`): Intercepts failed AJAX/fetch calls and HTTP 5xx responses.
+15. **Responsive Viewport Reflow** (`UIUX-004`): Mobile viewport check detects horizontal page overflow.
+
+#### Deterministic Local Demo & Fault Injection
+Veriflow includes a self-contained local web application fixture (`skills/veriflow/demo_app/server.py`) that runs on an ephemeral port. It features built-in fault injection modes:
+- `fault_broken_login`: Simulates incorrect post-login redirection.
+- `fault_open_protected_route`: Simulates a broken route guard allowing unauthenticated access.
+- `fault_missing_validation`: Simulates server-side form validation silence.
+- `fault_broken_link`: Simulates broken internal navigation links.
+- `fault_console_error`: Simulates unhandled JavaScript runtime exceptions.
+- `fault_server_500`: Simulates server-side 500 internal errors on API requests.
+
+Veriflow verifies that browser tests genuinely fail on broken fixtures and pass on corrected fixtures.
+
+#### Integration into the 9-Step Bounded Repair Workflow
+When a browser journey fails during verification:
+1. Veriflow captures structured browser diagnostics: current URL, page title, failed selector or assertion, console logs, and network failures.
+2. The agent analyzes the captured diagnostic evidence in Step 5.
+3. The agent proposes or applies a minimal fix in Step 6 (within the 3-attempt budget).
+4. The agent re-runs only the failing browser journey or category via `--check browser --execute` or `run-browser-tests.py --filter <id> --execute` in Step 7.
+5. Once resolved, broader verification runs in Step 8 to ensure zero regressions.
+
 ---
 
 ## Safety Rules
