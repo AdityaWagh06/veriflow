@@ -161,3 +161,39 @@ The catalog is grounded in the following technical standards:
 6. **Playwright Network Testing Guide**: [https://playwright.dev/docs/network](https://playwright.dev/docs/network)
 7. **Google web.dev Core Web Vitals**: [https://web.dev/articles/vitals](https://web.dev/articles/vitals)
 8. **Google SRE Launch Checklist**: [https://sre.google/sre-book/launch-checklist/](https://sre.google/sre-book/launch-checklist/)
+
+---
+
+## 9. Browser and User-Journey Automation Mapping (Phase 2)
+
+Phase 2 introduces automated client-side browser testing for critical catalog journeys via Playwright.
+
+### Mapping Index (`browser-test-mapping.json`)
+The mapping between catalog test cases and executable browser automation is stored in [`browser-test-mapping.json`](browser-test-mapping.json). Each entry defines:
+- `catalog_id`: The matching catalog test ID (e.g. `AUTH-001`, `ROUTE-001`).
+- `name`: Descriptive test name.
+- `journey_function`: The python automation routine in `browser_journeys.py`.
+- `category`: The functional category (`AUTH`, `ROUTE`, `ROLE`, `FORM`, `UIUX`).
+- `required_elements`: Key DOM selectors expected by the journey (e.g. `#username`, `#password`, `#submit-login`).
+
+### Currently Executable Browser Journeys
+17 production catalog cases are currently automated and verified against the deterministic demo fixture and real web targets:
+- **Authentication**: `AUTH-001` (valid login), `AUTH-002` (invalid login), `AUTH-003` (missing account recovery link), `AUTH-005` (duplicate registration), `AUTH-006` (password visibility toggle), `AUTH-007` (logout session invalidation), `AUTH-008` (session persistence across reload).
+- **Access Control**: `ROLE-002` (unauthenticated protected route rejection).
+- **Routing & Navigation**: `ROUTE-001` (primary navbar links), `ROUTE-003` (history back/forward traversal), `ROUTE-004` (unknown route 404 recovery).
+- **Forms & Validation**: `FORM-001` (required field validation), `FORM-003` (boundary input handling), `FORM-005` (keyboard Enter submission).
+- **User Experience & Telemetry**: `UIUX-004` (mobile viewport reflow & overflow check), `UIUX-007` (browser console error collection), `UIUX-008` (failed network request collection).
+
+### Execution via Veriflow
+- **Via Standard Check Runner**:
+  ```bash
+  python skills/veriflow/scripts/run-checks.py . --check browser --execute
+  ```
+- **Via Standalone Browser Runner**:
+  ```bash
+  python skills/veriflow/scripts/run-browser-tests.py --url http://localhost:3000 --execute
+  ```
+- **Demo Runner with Fault Injection**:
+  ```bash
+  python examples/browser-demo/run-demo.py --fault broken_login
+  ```

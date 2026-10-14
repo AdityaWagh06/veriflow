@@ -89,15 +89,45 @@ python skills/veriflow/scripts/run-checks.py [project-dir] --execute --json
 
 ---
 
-## End-to-End Repair Demonstration
+## Browser & User-Journey Verification (Phase 2)
 
-A reproducible, documented example of an end-to-end diagnostic and repair session is preserved in [`examples/repair-demo/`](examples/repair-demo/):
-- **Problem**: Incorrect arithmetic in discount calculation (`+` instead of `-`).
-- **Diagnosis**: Pytest failure automatically classified as `TEST_ASSERTION_FAILURE` with evidence `assert 120.0 == 80.0`.
-- **Repair**: Single targeted line change in application code without touching the test.
-- **Verification**: Immediate pass via `--check test --execute` followed by full suite pass.
+Veriflow includes an incremental browser automation capability designed specifically to catch real client-side defects that AI coding agents commonly introduce:
+- Incomplete authentication, broken redirects, and missing error states.
+- Bypassed route guards and broken protected pages.
+- Session loss on refresh and missing logout invalidation.
+- Client-side form validation silence and lost user input.
+- Broken navigation links, dead buttons, and 404 recovery.
+- Unhandled JavaScript console errors and failed network requests.
+- Mobile viewport reflow issues and horizontal scrolling overflow.
 
-See [`examples/repair-demo/README.md`](examples/repair-demo/README.md) for full details and reproduction instructions.
+### Safety & Tool Detection
+- **Playwright is Optional**: Veriflow never requires Playwright as a mandatory dependency. If Playwright or browser binaries are not present, checks report `BLOCKED` with clear remediation commands.
+- **Zero Automatic Installation**: Veriflow will never run `pip install` or download browser binaries automatically.
+- **Preview-Only by Default**: Like all Veriflow checks, browser verification runs in preview mode by default. Explicit `--execute` authorization is required to launch browsers.
+- **Credential Redaction**: Passwords, session cookies, and auth headers are automatically masked (`[REDACTED]`).
+
+### Browser Verification Usage
+```bash
+# Preview planned journeys via standard runner
+python skills/veriflow/scripts/run-checks.py . --check browser
+
+# Execute browser verification via standard runner
+python skills/veriflow/scripts/run-checks.py . --check browser --execute
+
+# Standalone runner with target URL
+python skills/veriflow/scripts/run-browser-tests.py --url http://localhost:3000 --execute
+
+# Filter by category or journey
+python skills/veriflow/scripts/run-browser-tests.py --filter auth --execute
+```
+
+---
+
+## Reproducible Demonstrations
+
+Veriflow includes two self-contained, reproducible examples:
+1. **Bounded Code Repair**: [`examples/repair-demo/`](examples/repair-demo/) demonstrates automated diagnosis, minimal targeted repair, and re-verification of a broken discount calculation.
+2. **Browser Journey Verification & Fault Injection**: [`examples/browser-demo/`](examples/browser-demo/) demonstrates clean execution and deliberate fault injection modes (`--fault broken_login`, `--fault open_protected_route`, `--fault console_error`, etc.) to prove that tests genuinely fail on defective applications.
 
 ---
 
@@ -141,7 +171,7 @@ python -m unittest discover tests -v
 pytest tests -v
 ```
 
-All 78 tests across 4 test modules validate project detection, check discovery, execution safety, Windows launchers, local tool discovery, diagnostic parsing, bounded repair specifications, `--check` filtering, and the Production-Readiness Test Catalog schema, completeness, and citations.
+All 133 tests across 18 test modules validate project detection, check discovery, execution safety, Windows launchers, local tool discovery, diagnostic parsing, bounded repair specifications, `--check` filtering, the Production-Readiness Test Catalog, browser automation detection, reporter schemas, local demo fixtures, and real browser user journeys.
 
 ---
 

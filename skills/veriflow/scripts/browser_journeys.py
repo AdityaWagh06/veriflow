@@ -15,6 +15,9 @@ Each test returns a structured BrowserTestResult conforming to Veriflow's 7 resu
 
 from __future__ import annotations
 
+# Prevent pytest from collecting user journey functions directly as test cases
+__test__ = False
+
 import time
 from typing import Any, Dict, List, Optional
 
