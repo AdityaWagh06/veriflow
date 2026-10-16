@@ -129,6 +129,7 @@ Veriflow includes three self-contained, reproducible examples:
 1. **Bounded Code Repair**: [`examples/repair-demo/`](examples/repair-demo/) demonstrates automated diagnosis, minimal targeted repair, and re-verification of a broken discount calculation.
 2. **Browser Journey Verification & Fault Injection**: [`examples/browser-demo/`](examples/browser-demo/) demonstrates clean execution and deliberate fault injection modes (`--fault broken_login`, `--fault open_protected_route`, `--fault console_error`, etc.) to prove that tests genuinely fail on defective applications.
 3. **API & Integration Verification & Fault Injection**: [`examples/api-demo/`](examples/api-demo/) demonstrates clean execution and targeted fault injection modes (`--fault schema`, `--fault stacktrace`, `--fault auth_bypass`, `--fault role_bypass`, `--fault missing_validation`, `--fault dependency`) to prove that API contract breaks, security bypasses, and secret leaks are reliably caught.
+4. **OpenAPI Contract Verification & Fault Injection**: [`examples/openapi-demo/`](examples/openapi-demo/) demonstrates clean execution against OpenAPI 3.0/3.1 specs (JSON & YAML) and targeted fault injection modes (`--fault missing_field`, `--fault wrong_status`, `--fault wrong_content_type`, `--fault invalid_type`) to prove that schema drift, undocumented status codes, unexpected media types, and property type mismatches fail with exact diagnostics.
 
 ---
 
@@ -182,6 +183,52 @@ python skills/veriflow/scripts/run-api-tests.py --execute --json
 
 ---
 
+## OpenAPI Contract Verification Engine (Phase 4)
+
+Veriflow Phase 4 introduces a contract-driven OpenAPI verification engine supporting OpenAPI 3.0 and 3.1 specifications in JSON and YAML formats:
+
+- **Static Specification Validation**: Verifies document syntax, required top-level elements (`openapi`, `info`, `paths`), and supported versions without live execution (`CONF-004`).
+- **Safe Reference Resolution**: Resolves local JSON Pointer `$ref` pointers safely, prevents infinite loops via circular reference tracking, and rejects directory-escaping path traversal (`../`) or remote `$ref` URLs (`CONF-004`).
+- **Response Status Code & Content-Type Validation**: Verifies live HTTP responses match documented status codes and media types (e.g. `application/json`) (`API-001`, `RESL-006`).
+- **Response Schema Contract Compliance**: Validates required properties, primitive data types (string, integer, number, boolean, array, object), enum sets, and numerical min/max boundary constraints (`API-001`).
+- **Request Body & Input Validation**: Validates request bodies against documented schemas and proves invalid inputs or missing required parameters yield HTTP 400 Bad Request client errors (`API-002`).
+- **Authentication Gate Enforcement**: Verifies operations declaring `security` schemes (e.g. Bearer tokens) reject unauthenticated requests with HTTP 401 Unauthorized (`AUTH-001`).
+- **Graceful YAML Dependency Handling**: Standard library-only for JSON. Supports YAML via optional PyYAML; if missing, reports a `BLOCKED` status with explicit remediation instructions instead of crashing.
+- **Strict Separation of Validation & Live Execution**: Allows specification validation independently of endpoint availability. An API can be offline while its spec is valid, or live while violating its contract.
+
+### Safety Principles & Policies
+- **Strict Local Loopback by Default**: Targets are restricted to `127.0.0.1`, `localhost`, or `::1`. Remote destinations require explicit `--allow-external` authorization with safety warnings.
+- **Preview by Default**: Checks run in discovery preview mode without network calls unless `--execute` is specified.
+- **Automatic Credential Redaction**: Bearer tokens, passwords, and sensitive keys are masked in console diagnostics and JSON reports.
+- **Bounded Diagnostic Capture**: Body snippets in failure diagnostics are strictly capped to prevent report bloat.
+- **Non-Destructive by Default**: Potentially state-altering operations (e.g. `DELETE`) are flagged for `MANUAL_REVIEW`.
+
+### OpenAPI Verification Usage
+```bash
+# Preview OpenAPI checks via unified runner
+python skills/veriflow/scripts/run-checks.py . --check openapi
+
+# Execute OpenAPI checks via unified runner
+python skills/veriflow/scripts/run-checks.py . --check openapi --execute
+
+# Standalone runner preview
+python skills/veriflow/scripts/run-openapi-tests.py --spec path/to/openapi.json
+
+# Static specification validation only (zero HTTP requests)
+python skills/veriflow/scripts/run-openapi-tests.py --spec path/to/openapi.json --validate-spec-only
+
+# Standalone runner execution against running service
+python skills/veriflow/scripts/run-openapi-tests.py --spec path/to/openapi.json --url http://127.0.0.1:8080 --execute
+
+# Filter by operationId or check name
+python skills/veriflow/scripts/run-openapi-tests.py --spec path/to/openapi.json --url http://127.0.0.1:8080 --execute --check getHealth
+
+# JSON formatted report
+python skills/veriflow/scripts/run-openapi-tests.py --spec path/to/openapi.json --url http://127.0.0.1:8080 --execute --json
+```
+
+---
+
 ## Production-Readiness Test Catalog
 
 Veriflow includes a research-backed, machine-readable catalog of 135+ production-readiness test cases designed specifically to catch defects in AI-built web applications:
@@ -222,7 +269,7 @@ python -m unittest discover tests -v
 pytest tests -v
 ```
 
-All tests validate project detection, check discovery, execution safety, Windows launchers, local tool discovery, diagnostic parsing, bounded repair specifications, `--check` filtering, the Production-Readiness Test Catalog, browser automation detection, reporter schemas, local demo fixtures, real browser user journeys, API target safety, URL validation, credential redaction, API schema contracts, authentication/authorization boundaries, server error defense, rate limiting, and integration failure handling.
+All tests validate project detection, check discovery, execution safety, Windows launchers, local tool discovery, diagnostic parsing, bounded repair specifications, `--check` filtering, the Production-Readiness Test Catalog, browser automation detection, reporter schemas, local demo fixtures, real browser user journeys, API target safety, URL validation, credential redaction, API schema contracts, authentication/authorization boundaries, server error defense, rate limiting, integration failure handling, OpenAPI 3.0/3.1 specification parsing (JSON & YAML), safe local reference resolution, circular reference detection, response schema contract validation, and fault-injection diagnostics.
 
 ---
 
