@@ -561,3 +561,108 @@ def check_api_role_authorization_denial(base_url: str, timeout: float = 5.0) -> 
     )
 
 
+def check_api_server_error_defense(base_url: str, timeout: float = 5.0) -> ApiTestResult:
+    """Validate that 500 server errors suppress internal stack traces and secrets (API-003 / SEC-009)."""
+    target_url = f"{base_url.rstrip('/')}/api/faulty/crash"
+    resp = safe_http_request(target_url, method="GET", timeout=timeout)
+
+    if resp.status != 500:
+        return ApiTestResult(
+            test_id="SEC-009",
+            name="Server error handling and debug trace suppression",
+            status="FAIL",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="GET",
+            status_code=resp.status,
+            error_message=f"Expected HTTP 500 from crash simulation endpoint, got {resp.status}",
+            evidence=resp.body_text[:200],
+        )
+
+    # Inspect response body for leaked debug information
+    lower_body = resp.body_text.lower()
+    leak_signatures = [
+        "traceback (most recent call last)",
+        'file "',
+        "password=",
+        "secret",
+        "syntaxerror",
+        "connectionerror",
+    ]
+    detected_leaks = [sig for sig in leak_signatures if sig in lower_body]
+
+    if detected_leaks:
+        return ApiTestResult(
+            test_id="SEC-009",
+            name="Server error handling and debug trace suppression",
+            status="FAIL",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="GET",
+            status_code=resp.status,
+            error_message=f"Server error leaks internal debug trace or secrets: {', '.join(detected_leaks)}",
+            evidence=resp.body_text[:300],
+            remediation="Ensure production error handlers catch unhandled exceptions and return generic sanitized messages without stack traces.",
+        )
+
+    return ApiTestResult(
+        test_id="SEC-009",
+        name="Server error handling and debug trace suppression",
+        status="PASS",
+        duration_ms=resp.duration_ms,
+        url=target_url,
+        method="GET",
+        status_code=resp.status,
+        response_body_snippet=resp.body_text[:200],
+    )
+
+
+def check_api_defensive_parsing(base_url: str, timeout: float = 5.0) -> ApiTestResult:
+    """Validate client handles unexpected HTML or malformed non-JSON payloads defensively (API-006)."""
+    target_url = f"{base_url.rstrip('/')}/api/faulty/malformed"
+    resp = safe_http_request(target_url, method="GET", timeout=timeout)
+
+    # When receiving HTML on an API endpoint, client parser should detect that it is non-JSON
+    # without crashing the process
+    if resp.is_json:
+        return ApiTestResult(
+            test_id="API-006",
+            name="Malformed or non-JSON response defense",
+            status="FAIL",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="GET",
+            status_code=resp.status,
+            error_message="Expected non-JSON response from malformed fixture, but response reported is_json=True",
+            evidence=resp.body_text[:200],
+        )
+
+    # Attempt defensive parse
+    try:
+        data = resp.json()
+        return ApiTestResult(
+            test_id="API-006",
+            name="Malformed or non-JSON response defense",
+            status="FAIL",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="GET",
+            error_message="HTML payload unexpectedly parsed as valid JSON",
+        )
+    except Exception:
+        # Expected: parser catches invalid JSON defensively
+        pass
+
+    return ApiTestResult(
+        test_id="API-006",
+        name="Malformed or non-JSON response defense",
+        status="PASS",
+        duration_ms=resp.duration_ms,
+        url=target_url,
+        method="GET",
+        status_code=resp.status,
+        response_body_snippet="Non-JSON payload detected and caught defensively without crash",
+    )
+
+
+
