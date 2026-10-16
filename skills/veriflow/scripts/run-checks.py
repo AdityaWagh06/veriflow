@@ -809,6 +809,83 @@ def _discover_api_checks(root: Path) -> tuple[list[dict], list[str]]:
     return checks, limitations
 
 
+def _discover_openapi_checks(root: Path) -> tuple[list[dict], list[str]]:
+    """Discover OpenAPI contract verification checks when OpenAPI specifications, tests, or runners are present."""
+    checks = []
+    limitations = []
+
+    spec_candidates = [
+        root / "openapi.json",
+        root / "openapi.yaml",
+        root / "openapi.yml",
+        root / "swagger.json",
+        root / "swagger.yaml",
+        root / "swagger.yml",
+        root / "specs" / "openapi.json",
+        root / "specs" / "openapi.yaml",
+        root / "specs" / "openapi.yml",
+        root / "api" / "openapi.json",
+        root / "api" / "openapi.yaml",
+        root / "api" / "openapi.yml",
+    ]
+    discovered_spec = next((p for p in spec_candidates if p.is_file()), None)
+
+    tests_dir = root / "tests"
+    has_openapi_tests = False
+    if tests_dir.is_dir():
+        try:
+            has_openapi_tests = any(tests_dir.glob("test_openapi_*.py"))
+        except OSError:
+            pass
+
+    openapi_runner = Path(__file__).parent / "run-openapi-tests.py"
+    if not openapi_runner.is_file():
+        openapi_runner = root / "skills" / "veriflow" / "scripts" / "run-openapi-tests.py"
+
+    has_mapping = (root / "skills" / "veriflow" / "references" / "openapi-test-mapping.json").is_file()
+
+    if discovered_spec or has_openapi_tests or has_mapping:
+        res = resolve_executable("python", root)
+        exe = res["resolved_path"] or sys.executable
+
+        if discovered_spec and openapi_runner.is_file():
+            try:
+                rel_spec = discovered_spec.relative_to(root)
+            except ValueError:
+                rel_spec = discovered_spec
+            cmd = [exe, str(openapi_runner), "--spec", str(discovered_spec), "--execute"]
+            checks.append({
+                "name": "openapi",
+                "ecosystem": "openapi",
+                "command": cmd,
+                "reason": f"Discovered OpenAPI contract verification specification ({rel_spec})",
+                "resolved_executable": exe,
+                "resolution_source": res["resolution_source"] or "system_path",
+                "timeout": 60,
+                "executed": False,
+                "status": "proposed",
+            })
+        elif has_openapi_tests:
+            cmd = [exe, "-m", "unittest", "discover", "tests", "-p", "test_openapi_*.py"]
+            checks.append({
+                "name": "openapi",
+                "ecosystem": "openapi",
+                "command": cmd,
+                "reason": "Discovered OpenAPI contract unit tests in tests/",
+                "resolved_executable": exe,
+                "resolution_source": res["resolution_source"] or "system_path",
+                "timeout": 60,
+                "executed": False,
+                "status": "proposed",
+            })
+        elif discovered_spec:
+            limitations.append(
+                f"OpenAPI specification discovered ({discovered_spec.name}), but OpenAPI runner was not found."
+            )
+
+    return checks, limitations
+
+
 MAX_OUTPUT_LENGTH = 100_000
 
 
@@ -1460,6 +1537,10 @@ def discover_checks(
     api_checks, api_limits = _discover_api_checks(root_path)
     all_checks.extend(api_checks)
     all_limitations.extend(api_limits)
+
+    openapi_checks, openapi_limits = _discover_openapi_checks(root_path)
+    all_checks.extend(openapi_checks)
+    all_limitations.extend(openapi_limits)
 
     if not all_checks and not detected_types:
         all_limitations.append("No recognizable project configuration or checks found for the directory.")
