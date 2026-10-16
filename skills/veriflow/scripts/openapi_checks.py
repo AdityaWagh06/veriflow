@@ -148,9 +148,10 @@ def generate_contract_checks(spec: OpenApiSpec) -> List[OpenApiCheckItem]:
     return checks
 
 
-def _substitute_path_params(path: str) -> str:
-    """Substitute sample values for path parameters (e.g. {id} -> 1)."""
-    return re.sub(r"\{[a-zA-Z0-9_\-]+\}", "1", path)
+def _substitute_path_params(path: str, invalid: bool = False) -> str:
+    """Substitute sample values for path parameters (e.g. {id} -> 1 or invalid-param)."""
+    sub_val = "invalid-param" if invalid else "1"
+    return re.sub(r"\{[a-zA-Z0-9_\-]+\}", sub_val, path)
 
 
 def execute_contract_check(
@@ -213,7 +214,8 @@ def execute_contract_check(
             )
 
     # Resolve target URL
-    concrete_path = _substitute_path_params(check.path)
+    is_neg_path = (check.check_type == "NEGATIVE_INPUT" and "{" in check.path)
+    concrete_path = _substitute_path_params(check.path, invalid=is_neg_path)
     target_url = f"{base_url.rstrip('/')}{concrete_path}"
 
     # Target safety check

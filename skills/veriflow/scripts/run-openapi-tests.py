@@ -35,6 +35,7 @@ from skills.veriflow.scripts.api_reporter import (
 )
 from skills.veriflow.scripts.api_safety import is_local_target
 from skills.veriflow.scripts.openapi_checks import (
+    execute_contract_check,
     generate_contract_checks,
     run_openapi_contract_verification,
 )
@@ -126,17 +127,13 @@ def run_openapi_cli(
     # 2. Spec-Only Validation Mode
     if validate_spec_only:
         checks = generate_contract_checks(spec)
+        spec_check = checks[0] if checks else None
         report = ApiExecutionReport(target_url=f"spec://{file_to_load.name}")
-        report.add_result(
-            ApiTestResult(
-                test_id="CONF-004",
-                name="OpenAPI document structure and reference integrity",
-                status="PASS",
-                url=f"spec://{file_to_load.name}",
-                method="STATIC",
-                response_body_snippet=f"Valid OpenAPI {spec.version} ({spec.title} v{spec.api_version}) with {len(spec.get_operations())} operation(s)",
-            )
-        )
+
+        if spec_check:
+            res = execute_contract_check(spec_check, base_url="", spec=spec, execute=True)
+            report.add_result(res)
+
         if as_json:
             print(json.dumps(report.to_dict(), indent=2))
         else:
@@ -146,9 +143,17 @@ def run_openapi_cli(
             print(f"Specification: {file_to_load.name} (OpenAPI {spec.version})")
             print(f"Title:         {spec.title} v{spec.api_version}")
             print(f"Operations:    {len(spec.get_operations())}")
-            print("Status:        [PASS] Document structure and schema references are valid.")
+            has_failure = any(r.status in ("FAIL", "BLOCKED") for r in report.results)
+            if has_failure:
+                print("Status:        [FAIL] Specification contains invalid or unresolved schema references.")
+                for r in report.results:
+                    if r.status in ("FAIL", "BLOCKED"):
+                        print(f"Error:         {r.error_message}")
+            else:
+                print("Status:        [PASS] Document structure and schema references are valid.")
             print("=" * 60)
-        return 0
+        has_failure = any(r.status in ("FAIL", "BLOCKED") for r in report.results)
+        return 1 if has_failure else 0
 
     # 3. Determine target URL
     effective_url = target_url

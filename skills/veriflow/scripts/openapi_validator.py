@@ -66,9 +66,9 @@ def validate_schema(
         ref_target = schema["$ref"]
         if ref_target in visited_refs:
             return errors  # Circular reference broken
-        visited_refs.add(ref_target)
         resolved = spec.resolve_schema(schema, visited=visited_refs)
-        return validate_schema(instance, resolved, path=path, spec=spec, visited_refs=visited_refs)
+        new_visited = visited_refs | {ref_target}
+        return validate_schema(instance, resolved, path=path, spec=spec, visited_refs=new_visited)
 
     # Check nullable / null handling
     is_nullable = schema.get("nullable", False)

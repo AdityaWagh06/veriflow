@@ -1,0 +1,190 @@
+openapi: "3.0.3"
+info:
+  title: "Veriflow Demo Items API"
+  version: "1.0.0"
+  description: "Deterministic OpenAPI contract fixture for Veriflow Phase 4 verification engine"
+servers:
+  - url: "http://127.0.0.1:8080"
+    description: "Local test server"
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      summary: Health check endpoint
+      description: Returns operational status and dependencies
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /api/items:
+    get:
+      operationId: listItems
+      summary: List product catalog items
+      description: Returns array of catalog items
+      responses:
+        "200":
+          description: List of catalog items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Item"
+    post:
+      operationId: createItem
+      summary: Create catalog item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateItemRequest"
+      responses:
+        "201":
+          description: Item created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/items/{id}:
+    get:
+      operationId: getItemById
+      summary: Get item by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Numeric item identifier
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Item details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "404":
+          description: Item not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/profile:
+    get:
+      operationId: getUserProfile
+      summary: Get authenticated user profile
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: User profile details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - service
+        - version
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - degraded
+        service:
+          type: string
+        version:
+          type: string
+        dependencies:
+          type: object
+    Item:
+      type: object
+      required:
+        - id
+        - name
+        - price
+        - category
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          minLength: 1
+        price:
+          type: number
+          minimum: 0.01
+        category:
+          type: string
+    CreateItemRequest:
+      type: object
+      required:
+        - name
+        - price
+        - category
+      properties:
+        name:
+          type: string
+          minLength: 1
+        price:
+          type: number
+          minimum: 0.01
+        category:
+          type: string
+    ProfileResponse:
+      type: object
+      required:
+        - username
+        - role
+        - email
+        - active
+      properties:
+        username:
+          type: string
+        role:
+          type: string
+          enum:
+            - admin
+            - user
+        email:
+          type: string
+        active:
+          type: boolean
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - code
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        hint:
+          type: string
