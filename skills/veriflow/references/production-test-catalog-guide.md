@@ -197,3 +197,53 @@ The mapping between catalog test cases and executable browser automation is stor
   ```bash
   python examples/browser-demo/run-demo.py --fault broken_login
   ```
+
+---
+
+## 10. API and Integration Automation Mapping (Phase 3)
+
+Phase 3 introduces automated backend API and integration verification via Python's standard library.
+
+### Mapping Index (`api-test-mapping.json`)
+The mapping between catalog test cases and executable API automation is defined in [`api-test-mapping.json`](api-test-mapping.json). Each entry defines:
+- `catalog_id`: The matching catalog test ID (e.g. `API-001`, `AUTH-001`).
+- `name`: Descriptive test name.
+- `function_name`: The python automation routine in `api_checks.py`.
+- `category`: The functional category (`API`, `AUTH`, `ROLE`, `FORM`, `DATA`, `RESL`, `SEC`).
+- `endpoint`: Target route (e.g. `/api/health`, `/api/items`, `/api/profile`).
+- `method`: HTTP method (`GET`, `POST`, etc.).
+- `expected_status`: Expected HTTP status code.
+
+### Currently Executable API Verification Checks
+12 production catalog cases are currently automated and verified against the deterministic demo fixture and local HTTP targets:
+- **API Contracts & Health**:
+  - `RESL-006`: Health check probe responsiveness (`/health`, `/ready`).
+  - `API-001`: Happy-path API response schema and contract validation.
+  - `API-002`: Missing / invalid request body input validation.
+  - `API-004`: Malformed JSON and defensive response handling.
+  - `API-005`: Unsupported HTTP methods and route boundaries.
+- **Authentication & Authorization**:
+  - `AUTH-001`: Authentication required on protected endpoints (`401 Unauthorized`).
+  - `ROLE-003`: Role-based access control denial of unauthorized actions (`403 Forbidden`).
+- **Resilience & Security**:
+  - `API-003` / `SEC-009`: Internal stack trace and sensitive secret suppression on server error.
+  - `API-007`: Rate limiting and retry-after header compliance (`429 Too Many Requests`).
+  - `API-008`: Third-party integration outage graceful degradation (`503 fallback`).
+  - `RESL-007`: Bounded request timeout handling under latency.
+- **Data & Input Validation**:
+  - `FORM-001`: Form and input parameter boundary validation.
+  - `DATA-004`: Data consistency across related CRUD operations.
+
+### Execution via Veriflow
+- **Via Standard Check Runner**:
+  ```bash
+  python skills/veriflow/scripts/run-checks.py . --check api --execute
+  ```
+- **Via Standalone API Runner**:
+  ```bash
+  python skills/veriflow/scripts/run-api-tests.py --url http://127.0.0.1:8000 --execute
+  ```
+- **Demo Runner with Fault Injection**:
+  ```bash
+  python examples/api-demo/run-demo.py --fault schema
+  ```

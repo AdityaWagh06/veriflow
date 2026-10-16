@@ -46,14 +46,21 @@ When checks fail during execution:
   - Do NOT modify dependencies or configuration unless strictly justified.
 - [ ] **Regression Reversion**: If a repair introduces regressions, report them honestly and revert the agent's targeted edit if safe.
 
-## 5. Routing and Integration
+## 5. Routing and Integration (API Verification Engine)
 
-For applications that use routes or APIs:
+For applications that use routes, backend APIs, or external integrations:
 
 - [ ] Check that referenced pages and route handlers exist.
 - [ ] Check navigation links and route parameters.
-- [ ] Check API paths, HTTP methods, and response handling.
-- [ ] Check authentication and authorization where relevant.
+- [ ] Verify health and readiness probes (`/health`, `/ready`) respond with HTTP 200 (`RESL-006`).
+- [ ] Verify response schema contracts, JSON headers, and required field types (`API-001`).
+- [ ] Validate client error handling and structured diagnostics on invalid inputs (`HTTP 400`) (`FORM-001`, `API-002`).
+- [ ] Validate authentication gate enforcement on protected endpoints (`HTTP 401`) (`AUTH-001`).
+- [ ] Validate role-based authorization denial for unprivileged users (`HTTP 403`) (`ROLE-003`).
+- [ ] Verify server error responses suppress raw stack traces and credentials (`HTTP 500`) (`SEC-009`, `API-003`).
+- [ ] Verify request timeouts and downstream dependency outage handling (`HTTP 503 fallback`) (`RESL-007`, `API-008`).
+- [ ] Verify data consistency across related CRUD operations using disposable test data (`DATA-004`).
+- [ ] Validate HTTP method behavior and 405 Method Not Allowed handling on unsupported verbs (`API-005`).
 - [ ] Check loading, success, empty, and error states where applicable.
 
 ## 6. Security
