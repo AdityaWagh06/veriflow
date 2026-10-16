@@ -19,12 +19,16 @@ Veriflow provides structured verification guidance accompanied by automation scr
   Discovers project ecosystems (Python, JavaScript, TypeScript, Rust, Go, .NET), package managers, and configured npm/project scripts.
 - **Verification Runner**: `scripts/run-checks.py`
   Discovers available validation commands from project configurations (preview by default) and optionally executes them via `--execute`.
+- **API & Integration Runner**: `scripts/run-api-tests.py`
+  Safe, opt-in API verification engine testing health, contracts, authentication, error defense, and integration resilience.
 - **Reference Checklist**: `references/verification-checklist.md`
   Detailed checklist for change reviews, failure triage, routing, security, and release readiness.
 - **Production-Readiness Test Catalog**: `references/production-test-catalog.json`
   Machine-readable catalog of 135+ research-backed production test cases across 15 critical operational categories.
 - **Catalog Reference Guide**: `references/production-test-catalog-guide.md`
   Schema definitions, category guidelines, applicability rules, severity scales, automation tiers, and maintenance instructions.
+- **API Test Mapping**: `references/api-test-mapping.json`
+  Catalog-to-automation index mapping production catalog test IDs (`API-*`, `AUTH-*`, `ROLE-*`, `FORM-*`, `RESL-*`, `SEC-*`) to automated verification checks.
 
 > **Note on Agent Integration**:
 > Coding agents and automation environments do not all trigger skills automatically. Agents and developers must invoke these scripts explicitly when verifying changes, unless an external runner or hook has been configured. Always reference scripts relative to the installed skill directory.
@@ -272,13 +276,52 @@ To maintain modularity and safety:
 
 ---
 
-### 6. Check Integrations and Routing
+### 6. Check Integrations and Routing (API & Integration Verification Engine)
 
-When applicable:
-- Confirm frontend routes point to valid components and handlers.
-- Verify API paths, HTTP methods, request payloads, and status codes.
-- Validate authentication and authorization boundaries on protected endpoints.
-- Check loading, empty, success, and error states in user-facing components.
+When verifying APIs, backend endpoints, and integrated microservices, invoke the Phase 3 **API & Integration Verification Engine** to validate real HTTP behavior without making blind assumptions.
+
+#### Automated API Verification Capabilities
+Veriflow supports a practical, bounded set of standard library-based checks:
+1. **Health and Readiness Probes**: Verifies `/health` and `/ready` return HTTP 200 with JSON status payload (`RESL-006`, `API-READY`).
+2. **Response Schema Contracts**: Validates HTTP 200, Content-Type headers, required JSON fields, data types, and non-empty responses (`API-001`).
+3. **Client Input Validation**: Proves missing required fields or invalid numeric inputs produce HTTP 400 Bad Request with actionable client error payloads (`FORM-001`, `API-002`).
+4. **Authentication Gate Enforcement**: Verifies unauthenticated requests to protected endpoints receive HTTP 401 Unauthorized without session leaks (`AUTH-001`).
+5. **Role-Based Authorization Denial**: Validates standard authenticated user tokens are denied access (`403 Forbidden`) to administrative or privileged endpoints (`ROLE-003`).
+6. **Server Error Defense & Traceback Suppression**: Triggers intentional failure endpoints to ensure HTTP 500 responses return generic JSON errors without leaking raw language tracebacks, file paths, database credentials, or secret keys (`SEC-009`, `API-003`).
+7. **Defensive Parsing**: Validates API clients and handlers handle malformed JSON and unexpected MIME types gracefully without crashing (`API-004`).
+8. **Request Timeouts & Network Delays**: Enforces bounded per-request timeouts (default 5.0s) and verifies timeouts fail fast with structured failure diagnostics (`RESL-007`).
+9. **Integration & Outage Degradation**: Tests downstream dependency status endpoints (`/api/dependency/status`) for structured HTTP 503 fallback metadata during external service outages (`API-008`).
+10. **Rate Limiting Compliance**: Validates HTTP 429 Too Many Requests status and Retry-After response headers under high-frequency request bursts (`API-007`).
+11. **CRUD Lifecycle & Data Consistency**: Tests sequential creation, retrieval, and state consistency across related API endpoints (`DATA-004`).
+12. **HTTP Method & Routing Boundaries**: Tests unsupported verbs (e.g. `PATCH`, `DELETE`) on read-only endpoints return HTTP 405 Method Not Allowed or 404 Not Found (`API-005`).
+
+#### Safety Boundaries & Policies
+- **Strict Local Loopback by Default**: Targets must be on `127.0.0.1`, `localhost`, or `::1`. Remote and production URLs are blocked unless explicit local resolution is verified.
+- **Preview by Default**: Running without `--execute` previews planned checks without sending any HTTP requests.
+- **Credential Redaction**: Authorization headers (`Bearer [REDACTED]`), Cookie headers, passwords, and tokens are stripped from reports.
+- **Zero Third-Party Dependencies**: Built entirely with Python's standard library (`urllib.request`, `http.server`, `json`).
+- **Bounded Response Capture**: Body snippets are capped (default 16 KB) to prevent report bloat.
+
+#### Running API Verification
+```bash
+# Preview API checks via unified runner
+python <path-to-skill>/scripts/run-checks.py . --check api
+
+# Execute API checks via unified runner
+python <path-to-skill>/scripts/run-checks.py . --check api --execute
+
+# Standalone runner preview
+python <path-to-skill>/scripts/run-api-tests.py
+
+# Standalone runner execution against local fixture
+python <path-to-skill>/scripts/run-api-tests.py --execute
+
+# Execute against an existing local service
+python <path-to-skill>/scripts/run-api-tests.py --execute --url http://127.0.0.1:8000
+
+# JSON formatted report
+python <path-to-skill>/scripts/run-api-tests.py --execute --json
+```
 
 ### 7. Review Security and Dependencies
 
