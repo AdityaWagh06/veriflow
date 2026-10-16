@@ -125,9 +125,60 @@ python skills/veriflow/scripts/run-browser-tests.py --filter auth --execute
 
 ## Reproducible Demonstrations
 
-Veriflow includes two self-contained, reproducible examples:
+Veriflow includes three self-contained, reproducible examples:
 1. **Bounded Code Repair**: [`examples/repair-demo/`](examples/repair-demo/) demonstrates automated diagnosis, minimal targeted repair, and re-verification of a broken discount calculation.
 2. **Browser Journey Verification & Fault Injection**: [`examples/browser-demo/`](examples/browser-demo/) demonstrates clean execution and deliberate fault injection modes (`--fault broken_login`, `--fault open_protected_route`, `--fault console_error`, etc.) to prove that tests genuinely fail on defective applications.
+3. **API & Integration Verification & Fault Injection**: [`examples/api-demo/`](examples/api-demo/) demonstrates clean execution and targeted fault injection modes (`--fault schema`, `--fault stacktrace`, `--fault auth_bypass`, `--fault role_bypass`, `--fault missing_validation`, `--fault dependency`) to prove that API contract breaks, security bypasses, and secret leaks are reliably caught.
+
+---
+
+## API & Integration Verification Engine (Phase 3)
+
+Veriflow Phase 3 introduces a lightweight, zero-dependency API and integration verification engine built entirely on Python's standard library (`urllib.request`, `http.server`, `json`):
+
+- **Health and Readiness Probes**: Verifies `/health` and `/ready` endpoints respond with HTTP 200 and structured status payloads (`RESL-006`).
+- **Response Schema Contracts**: Enforces Content-Type headers, required JSON keys, and type assertions on live endpoints (`API-001`).
+- **Input Validation & Client Errors**: Confirms missing required parameters or boundary violations return HTTP 400 with actionable error payloads (`FORM-001`, `API-002`).
+- **Authentication Gate Enforcement**: Verifies unauthenticated access to protected endpoints receives HTTP 401 Unauthorized without session leakage (`AUTH-001`).
+- **Role-Based Authorization Denial**: Validates standard authenticated user tokens are denied access (`HTTP 403 Forbidden`) to administrative or privileged endpoints (`ROLE-003`).
+- **Server Error Defense & Traceback Suppression**: Triggers intentional error routes to verify HTTP 500 responses return generic JSON errors without leaking raw language tracebacks, source paths, or database credentials (`SEC-009`, `API-003`).
+- **Defensive Parsing & Unsupported Types**: Verifies API clients and handlers handle malformed JSON and unexpected MIME types gracefully (`API-004`).
+- **Bounded Request Timeouts**: Enforces per-request timeouts (default 5.0s) and fast failure diagnostics under latency conditions (`RESL-007`).
+- **Integration & Outage Degradation**: Tests downstream dependency status endpoints for structured HTTP 503 fallback metadata during external service outages (`API-008`).
+- **Rate Limiting Compliance**: Validates HTTP 429 Too Many Requests status and Retry-After response headers under high-frequency request bursts (`API-007`).
+- **CRUD Lifecycle & Data Consistency**: Tests sequential creation, retrieval, and state consistency across related API endpoints (`DATA-004`).
+- **HTTP Method Boundaries**: Tests unsupported verbs on read-only endpoints return HTTP 405 Method Not Allowed or 404 Not Found (`API-005`).
+
+### Safety Principles & Policies
+- **Strict Local Loopback by Default**: Targets must be on `127.0.0.1`, `localhost`, or `::1`. Accidental external or production requests are blocked.
+- **Preview by Default**: Checks run in discovery preview mode unless explicitly executed with `--execute`.
+- **Automatic Credential Redaction**: Passwords, tokens, API keys, `Authorization: Bearer [REDACTED]` headers, and `Cookie: [REDACTED]` values are masked across all reports and diagnostics.
+- **Bounded Response Capture**: Body snippets are strictly capped at 16 KB to prevent memory exhaustion or report bloat.
+- **Zero Third-Party Dependencies**: No external libraries (requests, httpx, etc.) required.
+
+### API Verification Usage
+```bash
+# Preview API checks via unified runner
+python skills/veriflow/scripts/run-checks.py . --check api
+
+# Execute API verification via unified runner
+python skills/veriflow/scripts/run-checks.py . --check api --execute
+
+# Standalone runner preview
+python skills/veriflow/scripts/run-api-tests.py
+
+# Standalone runner execution against local fixture
+python skills/veriflow/scripts/run-api-tests.py --execute
+
+# Execute against an existing local service
+python skills/veriflow/scripts/run-api-tests.py --execute --url http://127.0.0.1:8000
+
+# Filter by catalog ID or keyword
+python skills/veriflow/scripts/run-api-tests.py --execute --filter auth
+
+# JSON formatted report
+python skills/veriflow/scripts/run-api-tests.py --execute --json
+```
 
 ---
 
@@ -171,7 +222,7 @@ python -m unittest discover tests -v
 pytest tests -v
 ```
 
-All 133 tests across 18 test modules validate project detection, check discovery, execution safety, Windows launchers, local tool discovery, diagnostic parsing, bounded repair specifications, `--check` filtering, the Production-Readiness Test Catalog, browser automation detection, reporter schemas, local demo fixtures, and real browser user journeys.
+All tests validate project detection, check discovery, execution safety, Windows launchers, local tool discovery, diagnostic parsing, bounded repair specifications, `--check` filtering, the Production-Readiness Test Catalog, browser automation detection, reporter schemas, local demo fixtures, real browser user journeys, API target safety, URL validation, credential redaction, API schema contracts, authentication/authorization boundaries, server error defense, rate limiting, and integration failure handling.
 
 ---
 
