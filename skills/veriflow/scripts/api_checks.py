@@ -812,5 +812,329 @@ def check_api_rate_limiting(base_url: str, timeout: float = 5.0) -> ApiTestResul
     )
 
 
+def check_api_crud_lifecycle(base_url: str, timeout: float = 5.0) -> ApiTestResult:
+    """Validate full transactional CRUD lifecycle consistency using disposable test entities (DATA-001)."""
+    items_url = f"{base_url.rstrip('/')}/api/items"
+    start_time = time.perf_counter()
+
+    # 1. CREATE
+    create_payload = json.dumps({"name": "Veriflow Smoke Item", "price": 88.50, "category": "Verification"})
+    create_resp = safe_http_request(
+        items_url,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+        body=create_payload,
+        timeout=timeout,
+    )
+
+    if create_resp.status != 201:
+        return ApiTestResult(
+            test_id="DATA-001",
+            name="CRUD data operations and persistence lifecycle",
+            status="FAIL",
+            duration_ms=create_resp.duration_ms,
+            url=items_url,
+            method="POST",
+            status_code=create_resp.status,
+            error_message=f"Create step failed: expected HTTP 201, got {create_resp.status}",
+            evidence=create_resp.body_text[:200],
+        )
+
+    try:
+        created_item = create_resp.json()
+        item_id = created_item.get("id")
+        if not item_id:
+            return ApiTestResult(
+                test_id="DATA-001",
+                name="CRUD data operations and persistence lifecycle",
+                status="FAIL",
+                duration_ms=create_resp.duration_ms,
+                url=items_url,
+                method="POST",
+                error_message="Create response missing 'id' for newly created record",
+                evidence=create_resp.body_text[:200],
+            )
+    except Exception as exc:
+        return ApiTestResult(
+            test_id="DATA-001",
+            name="CRUD data operations and persistence lifecycle",
+            status="FAIL",
+            duration_ms=create_resp.duration_ms,
+            url=items_url,
+            method="POST",
+            error_message=f"Failed to parse created item JSON: {exc}",
+        )
+
+    # 2. READ
+    item_url = f"{items_url}/{item_id}"
+    read_resp = safe_http_request(item_url, method="GET", timeout=timeout)
+    if read_resp.status != 200:
+        return ApiTestResult(
+            test_id="DATA-001",
+            name="CRUD data operations and persistence lifecycle",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start_time) * 1000.0,
+            url=item_url,
+            method="GET",
+            status_code=read_resp.status,
+            error_message=f"Read step failed: expected HTTP 200, got {read_resp.status}",
+            evidence=read_resp.body_text[:200],
+        )
+
+    # 3. DELETE
+    del_resp = safe_http_request(item_url, method="DELETE", timeout=timeout)
+    if del_resp.status != 204:
+        return ApiTestResult(
+            test_id="DATA-001",
+            name="CRUD data operations and persistence lifecycle",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start_time) * 1000.0,
+            url=item_url,
+            method="DELETE",
+            status_code=del_resp.status,
+            error_message=f"Delete step failed: expected HTTP 204, got {del_resp.status}",
+            evidence=del_resp.body_text[:200],
+        )
+
+    # 4. CONFIRM DELETION
+    verify_del = safe_http_request(item_url, method="GET", timeout=timeout)
+    if verify_del.status != 404:
+        return ApiTestResult(
+            test_id="DATA-001",
+            name="CRUD data operations and persistence lifecycle",
+            status="FAIL",
+            duration_ms=(time.perf_counter() - start_time) * 1000.0,
+            url=item_url,
+            method="GET",
+            status_code=verify_del.status,
+            error_message=f"Confirm deletion failed: expected HTTP 404 for deleted entity, got {verify_del.status}",
+            evidence=verify_del.body_text[:200],
+        )
+
+    total_ms = (time.perf_counter() - start_time) * 1000.0
+    return ApiTestResult(
+        test_id="DATA-001",
+        name="CRUD data operations and persistence lifecycle",
+        status="PASS",
+        duration_ms=round(total_ms, 2),
+        url=items_url,
+        method="POST+GET+DELETE",
+        status_code=200,
+        response_body_snippet="Full lifecycle verified: 201 Created -> 200 Read -> 204 Deleted -> 404 Confirmed",
+    )
+
+
+def check_api_http_methods(base_url: str, timeout: float = 5.0) -> ApiTestResult:
+    """Validate that unsupported HTTP methods return 405 Method Not Allowed with Allow header (API-METHOD)."""
+    target_url = f"{base_url.rstrip('/')}/api/health"
+    # POST to a GET-only health probe
+    resp = safe_http_request(target_url, method="POST", timeout=timeout)
+
+    if resp.status != 405:
+        return ApiTestResult(
+            test_id="API-METHOD",
+            name="HTTP method constraint enforcement",
+            status="FAIL",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="POST",
+            status_code=resp.status,
+            error_message=f"Expected HTTP 405 Method Not Allowed, got HTTP {resp.status}",
+            evidence=resp.body_text[:200],
+            remediation="Ensure endpoints reject unsupported HTTP verbs with HTTP 405 and Allow header.",
+        )
+
+    allow_header = resp.headers.get("allow")
+    if not allow_header:
+        return ApiTestResult(
+            test_id="API-METHOD",
+            name="HTTP method constraint enforcement",
+            status="FAIL",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="POST",
+            status_code=resp.status,
+            error_message="HTTP 405 response missing required 'Allow' header",
+            evidence=str(resp.headers),
+        )
+
+    return ApiTestResult(
+        test_id="API-METHOD",
+        name="HTTP method constraint enforcement",
+        status="PASS",
+        duration_ms=resp.duration_ms,
+        url=target_url,
+        method="POST",
+        status_code=resp.status,
+        response_body_snippet=f"HTTP 405 confirmed with Allow: {allow_header}",
+    )
+
+
+def get_api_checks_mapping() -> List[Dict[str, Any]]:
+    """Return all catalog-mapped API checks with metadata."""
+    return [
+        {
+            "catalog_id": "RESL-006",
+            "name": "Service health probe verification",
+            "category": "RESL",
+            "check_function": "check_api_health",
+            "endpoint": "/api/health",
+            "method": "GET",
+            "expected_status": 200,
+        },
+        {
+            "catalog_id": "API-READY",
+            "name": "Service readiness probe verification",
+            "category": "RESL",
+            "check_function": "check_api_readiness",
+            "endpoint": "/api/ready",
+            "method": "GET",
+            "expected_status": 200,
+        },
+        {
+            "catalog_id": "API-001",
+            "name": "Happy-path API response schema and contract validation",
+            "category": "API",
+            "check_function": "check_api_schema_contract",
+            "endpoint": "/api/items",
+            "method": "GET",
+            "expected_status": 200,
+        },
+        {
+            "catalog_id": "API-002",
+            "name": "HTTP 4xx client error presentation and formatting",
+            "category": "API",
+            "check_function": "check_api_client_error_formatting",
+            "endpoint": "/api/items",
+            "method": "POST",
+            "expected_status": 400,
+        },
+        {
+            "catalog_id": "FORM-001",
+            "name": "Input validation and constraint enforcement",
+            "category": "FORM",
+            "check_function": "check_api_input_validation",
+            "endpoint": "/api/items",
+            "method": "POST",
+            "expected_status": 400,
+        },
+        {
+            "catalog_id": "AUTH-001",
+            "name": "Authentication requirement enforcement on protected endpoints",
+            "category": "AUTH",
+            "check_function": "check_api_auth_required",
+            "endpoint": "/api/profile",
+            "method": "GET",
+            "expected_status": 401,
+        },
+        {
+            "catalog_id": "ROLE-003",
+            "name": "Role-based access control and privilege denial",
+            "category": "ROLE",
+            "check_function": "check_api_role_authorization_denial",
+            "endpoint": "/api/admin/metrics",
+            "method": "GET",
+            "expected_status": 403,
+        },
+        {
+            "catalog_id": "SEC-009",
+            "name": "Server error handling and debug trace suppression",
+            "category": "SEC",
+            "check_function": "check_api_server_error_defense",
+            "endpoint": "/api/faulty/crash",
+            "method": "GET",
+            "expected_status": 500,
+        },
+        {
+            "catalog_id": "API-006",
+            "name": "Malformed or non-JSON response defense",
+            "category": "API",
+            "check_function": "check_api_defensive_parsing",
+            "endpoint": "/api/faulty/malformed",
+            "method": "GET",
+            "expected_status": 200,
+        },
+        {
+            "catalog_id": "API-004",
+            "name": "Request timeout and client cancellation handling",
+            "category": "API",
+            "check_function": "check_api_timeout_handling",
+            "endpoint": "/api/faulty/slow",
+            "method": "GET",
+            "expected_status": 0,
+        },
+        {
+            "catalog_id": "API-008",
+            "name": "Third-party integration outage graceful degradation",
+            "category": "API",
+            "check_function": "check_api_dependency_outage",
+            "endpoint": "/api/dependency/status",
+            "method": "GET",
+            "expected_status": 200,
+        },
+        {
+            "catalog_id": "API-007",
+            "name": "HTTP 429 Rate limiting and Retry-After compliance",
+            "category": "API",
+            "check_function": "check_api_rate_limiting",
+            "endpoint": "/api/rate-limit-test",
+            "method": "GET",
+            "expected_status": 429,
+        },
+        {
+            "catalog_id": "DATA-001",
+            "name": "CRUD data operations and persistence lifecycle",
+            "category": "DATA",
+            "check_function": "check_api_crud_lifecycle",
+            "endpoint": "/api/items",
+            "method": "POST+GET+DELETE",
+            "expected_status": 200,
+        },
+        {
+            "catalog_id": "API-METHOD",
+            "name": "HTTP method constraint enforcement",
+            "category": "API",
+            "check_function": "check_api_http_methods",
+            "endpoint": "/api/health",
+            "method": "POST",
+            "expected_status": 405,
+        },
+    ]
+
+
+CHECK_FUNCTIONS: Dict[str, Callable[[str], ApiTestResult]] = {
+    "RESL-006": check_api_health,
+    "API-READY": check_api_readiness,
+    "API-001": check_api_schema_contract,
+    "API-002": check_api_client_error_formatting,
+    "FORM-001": check_api_input_validation,
+    "AUTH-001": check_api_auth_required,
+    "ROLE-003": check_api_role_authorization_denial,
+    "SEC-009": check_api_server_error_defense,
+    "API-006": check_api_defensive_parsing,
+    "API-004": check_api_timeout_handling,
+    "API-008": check_api_dependency_outage,
+    "API-007": check_api_rate_limiting,
+    "DATA-001": check_api_crud_lifecycle,
+    "API-METHOD": check_api_http_methods,
+}
+
+
+def run_catalog_api_test(catalog_id: str, base_url: str, timeout: float = 5.0) -> ApiTestResult:
+    """Execute a single catalog-mapped API check by its catalog ID."""
+    fn = CHECK_FUNCTIONS.get(catalog_id)
+    if not fn:
+        return ApiTestResult(
+            test_id=catalog_id,
+            name=f"Unmapped catalog check {catalog_id}",
+            status="NOT_APPLICABLE",
+            duration_ms=0.0,
+            url=base_url,
+            error_message=f"No automated API check implementation mapped for catalog ID '{catalog_id}'.",
+        )
+    return fn(base_url)
+
+
+
 
 

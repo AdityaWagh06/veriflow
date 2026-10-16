@@ -102,7 +102,10 @@ class DemoAppHandler(BaseHTTPRequestHandler):
             for k, v in extra_headers:
                 self.send_header(k, v)
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except OSError:
+            pass
 
     def _send_json(self, status: int, data: Any, extra_headers: Optional[list] = None) -> None:
         body = json.dumps(data).encode("utf-8")
@@ -113,7 +116,10 @@ class DemoAppHandler(BaseHTTPRequestHandler):
             for k, v in extra_headers:
                 self.send_header(k, v)
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except OSError:
+            pass
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
