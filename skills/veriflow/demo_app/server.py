@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Veriflow Deterministic Local Demo Web Application.
+Veriflow Deterministic Local Demo Web & API Application.
 
 A lightweight, zero-dependency HTTP server built with Python's standard library.
-Provides realistic web pages, form handling, session cookies, route guards,
-and controlled fault injection modes for browser automation testing.
+Provides realistic web pages, RESTful API endpoints, form handling, session cookies,
+route guards, and controlled fault injection modes for browser and API automation testing.
 """
 
 from __future__ import annotations
@@ -14,16 +14,26 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 from pathlib import Path
 import threading
-from typing import Any, Dict, Optional, Tuple
+import time
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 
 class DemoAppHandler(BaseHTTPRequestHandler):
-    """HTTP request handler for Veriflow demo web application."""
+    """HTTP request handler for Veriflow demo web and API application."""
 
     @property
     def server_config(self) -> Dict[str, Any]:
         return getattr(self.server, "server_config", {})
+
+    @property
+    def items_db(self) -> Dict[int, Dict[str, Any]]:
+        if not hasattr(self.server, "items_db"):
+            self.server.items_db = {
+                1: {"id": 1, "name": "Standard Widget", "price": 19.99, "category": "Tools"},
+                2: {"id": 2, "name": "Deluxe Gadget", "price": 49.99, "category": "Electronics"},
+            }
+        return self.server.items_db
 
     def log_message(self, format: str, *args: Any) -> None:
         """Suppress standard HTTP server logging to keep test output clean."""
@@ -42,11 +52,44 @@ class DemoAppHandler(BaseHTTPRequestHandler):
             return None
         return None
 
-    def _parse_body(self) -> Dict[str, str]:
+    def _get_auth_user(self) -> Optional[Tuple[str, str]]:
+        """Extract authenticated user and role from Bearer token or session cookie.
+
+        Returns (username, role) or None.
+        """
+        # 1. Check Authorization header
+        auth_header = self.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+            if token == "token_admin":
+                return ("admin", "admin")
+            elif token == "token_user":
+                return ("alice", "user")
+            elif token.startswith("user_"):
+                return (token[5:], "user")
+
+        # 2. Check Session Cookie
+        cookie_user = self._get_cookie("vf_session")
+        if cookie_user:
+            role = "admin" if cookie_user == "admin" else "user"
+            return (cookie_user, role)
+
+        return None
+
+    def _parse_body(self) -> Dict[str, Any]:
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length <= 0:
             return {}
         raw = self.rfile.read(content_length).decode("utf-8")
+        content_type = self.headers.get("Content-Type", "")
+
+        if "application/json" in content_type:
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                return {"_raw": raw, "_invalid_json": True}
+
+        # URL-encoded form data fallback
         parsed = parse_qs(raw)
         return {k: v[0] for k, v in parsed.items()}
 
@@ -61,11 +104,14 @@ class DemoAppHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_json(self, status: int, data: Dict[str, Any]) -> None:
+    def _send_json(self, status: int, data: Any, extra_headers: Optional[list] = None) -> None:
         body = json.dumps(data).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        if extra_headers:
+            for k, v in extra_headers:
+                self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
 
@@ -129,7 +175,7 @@ class DemoAppHandler(BaseHTTPRequestHandler):
 </body>
 </html>"""
 
-        # Handle Routes
+        # HTML Web Page Routes
         if path == "/":
             content = """
             <h1 id="page-title">Welcome to Veriflow Demo App</h1>
@@ -207,9 +253,7 @@ class DemoAppHandler(BaseHTTPRequestHandler):
 
         elif path == "/dashboard":
             session_user = self._get_cookie("vf_session")
-            # Route guard check
             if not session_user and fault != "broken_auth_guard":
-                # Redirect to login with returnUrl
                 self._send_html(
                     302,
                     "",
@@ -258,19 +302,148 @@ class DemoAppHandler(BaseHTTPRequestHandler):
                 ],
             )
 
-        elif path == "/api/health":
-            self._send_json(200, {"status": "ok", "service": "veriflow-demo"})
+        # RESTful API Endpoints
+        elif path in ("/api/health", "/api/ready"):
+            self._send_json(200, {
+                "status": "ok",
+                "service": "veriflow-demo-api",
+                "version": "1.0.0",
+                "dependencies": {
+                    "database": "connected",
+                    "cache": "connected",
+                },
+            })
+
+        elif path == "/api/items":
+            if fault == "fault_api_schema":
+                # Drops required 'price' field to simulate schema drift
+                self._send_json(200, [{"id": 1, "name": "Broken Widget"}])
+                return
+
+            items_list = list(self.items_db.values())
+            self._send_json(200, items_list)
+
+        elif path.startswith("/api/items/"):
+            raw_id = path[len("/api/items/"):]
+            try:
+                item_id = int(raw_id)
+                if item_id in self.items_db:
+                    self._send_json(200, self.items_db[item_id])
+                else:
+                    self._send_json(404, {"error": "Item not found", "code": "NOT_FOUND", "item_id": item_id})
+            except ValueError:
+                self._send_json(400, {"error": "Invalid item ID format", "code": "INVALID_ID"})
+
+        elif path == "/api/profile":
+            auth = self._get_auth_user()
+            if not auth and fault != "fault_api_auth_bypass":
+                self._send_json(401, {
+                    "error": "Authentication required",
+                    "code": "UNAUTHORIZED",
+                    "hint": "Include 'Authorization: Bearer token_user' header",
+                })
+                return
+
+            username, role = auth or ("bypassed_user", "user")
+            self._send_json(200, {
+                "username": username,
+                "role": role,
+                "email": f"{username}@example.local",
+                "active": True,
+            })
+
+        elif path == "/api/admin/metrics":
+            auth = self._get_auth_user()
+            if not auth and fault != "fault_api_auth_bypass" and fault != "fault_api_role_bypass":
+                self._send_json(401, {"error": "Authentication required", "code": "UNAUTHORIZED"})
+                return
+
+            username, role = auth or ("bypassed_admin", "admin" if fault == "fault_api_role_bypass" else "user")
+            if role != "admin" and fault != "fault_api_role_bypass":
+                self._send_json(403, {
+                    "error": "Forbidden: Administrator role required",
+                    "code": "FORBIDDEN",
+                })
+                return
+
+            self._send_json(200, {
+                "system": "veriflow-metrics",
+                "active_sessions": 3,
+                "requests_per_min": 42,
+                "cpu_load_percent": 12.5,
+            })
+
+        elif path == "/api/dependency/status":
+            if fault == "fault_api_dependency":
+                self._send_json(503, {
+                    "error": "External payment dependency unavailable",
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "fallback": "offline_queue_active",
+                })
+                return
+
+            self._send_json(200, {
+                "dependency": "payment_service",
+                "status": "available",
+                "latency_ms": 14.2,
+            })
+
+        elif path == "/api/rate-limit-test":
+            self._send_json(429, {
+                "error": "Too Many Requests",
+                "code": "RATE_LIMITED",
+                "retry_after": 60,
+            }, extra_headers=[("Retry-After", "60")])
+
+        elif path == "/api/faulty/crash":
+            if fault == "fault_api_stacktrace":
+                # Leaks stack trace and credentials
+                body = (
+                    "Internal Server Error:\n"
+                    "Traceback (most recent call last):\n"
+                    "  File \"server.py\", line 120, in do_GET\n"
+                    "DatabaseConnectionError: Password=db_super_secret_123 failed for host db.internal"
+                ).encode("utf-8")
+                self.send_response(500)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            # Clean 500 without stack trace
+            self._send_json(500, {
+                "error": "An unexpected server error occurred",
+                "code": "INTERNAL_SERVER_ERROR",
+            })
+
+        elif path == "/api/faulty/malformed":
+            # Returns HTML on what should be an API endpoint
+            html = "<html><body>502 Bad Gateway - Nginx Proxy Error</body></html>".encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(html)))
+            self.end_headers()
+            self.wfile.write(html)
+
+        elif path == "/api/faulty/slow":
+            # Sleep to trigger timeout
+            time.sleep(3.0)
+            self._send_json(200, {"status": "slow_response"})
 
         elif path == "/api/fail-500":
             self._send_json(500, {"error": "Simulated 500 internal server failure"})
 
         else:
-            content = """
-            <h1 id="page-title">404 — Page Not Found</h1>
-            <p id="not-found-msg">The requested URL was not found on this server.</p>
-            <a id="back-home-link" href="/">Return to Home</a>
-            """
-            self._send_html(404, layout("Not Found", content))
+            if path.startswith("/api/"):
+                self._send_json(404, {"error": "API route not found", "code": "NOT_FOUND"})
+            else:
+                content = """
+                <h1 id="page-title">404 — Page Not Found</h1>
+                <p id="not-found-msg">The requested URL was not found on this server.</p>
+                <a id="back-home-link" href="/">Return to Home</a>
+                """
+                self._send_html(404, layout("Not Found", content))
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
@@ -278,13 +451,64 @@ class DemoAppHandler(BaseHTTPRequestHandler):
         body = self._parse_body()
         fault = self.server_config.get("fault", "")
 
-        if path == "/login":
+        if path == "/api/items":
+            if not isinstance(body, dict) or body.get("_invalid_json"):
+                self._send_json(400, {
+                    "error": "Malformed JSON payload",
+                    "code": "INVALID_JSON",
+                })
+                return
+
+            name = str(body.get("name", "")).strip()
+            price = body.get("price")
+            category = str(body.get("category", "General")).strip()
+
+            # Validation
+            validation_errors = []
+            if not name:
+                validation_errors.append({"field": "name", "message": "Item name is required and cannot be empty."})
+            if price is None:
+                validation_errors.append({"field": "price", "message": "Price is required."})
+            else:
+                try:
+                    price_val = float(price)
+                    if price_val < 0 and fault != "fault_api_missing_validation":
+                        validation_errors.append({"field": "price", "message": "Price must be non-negative."})
+                    price = price_val
+                except (ValueError, TypeError):
+                    validation_errors.append({"field": "price", "message": "Price must be a valid number."})
+
+            if validation_errors and fault != "fault_api_missing_validation":
+                self._send_json(400, {
+                    "error": "Input validation failed",
+                    "code": "VALIDATION_ERROR",
+                    "details": validation_errors,
+                })
+                return
+
+            new_id = max(self.items_db.keys(), default=0) + 1
+            new_item = {
+                "id": new_id,
+                "name": name or "Unnamed Item",
+                "price": price if price is not None else 0.0,
+                "category": category,
+            }
+            self.items_db[new_id] = new_item
+            self._send_json(201, new_item, extra_headers=[("Location", f"/api/items/{new_id}")])
+
+        elif path in ("/api/health", "/api/ready", "/api/profile", "/api/admin/metrics"):
+            # Method not allowed for GET-only endpoints
+            self._send_json(405, {
+                "error": f"Method POST not allowed on {path}",
+                "code": "METHOD_NOT_ALLOWED",
+            }, extra_headers=[("Allow", "GET")])
+
+        elif path == "/login":
             username = body.get("username", "").strip()
             password = body.get("password", "").strip()
             return_url = body.get("returnUrl", "/dashboard")
 
             if fault == "faulty_redirect":
-                # Redirects back to login or nowhere instead of intended destination
                 self._send_html(
                     302,
                     "",
@@ -296,7 +520,6 @@ class DemoAppHandler(BaseHTTPRequestHandler):
                 return
 
             if username == "admin" and password == "secret123":
-                # Successful login
                 self._send_html(
                     302,
                     "",
@@ -335,7 +558,29 @@ class DemoAppHandler(BaseHTTPRequestHandler):
                     ],
                 )
         else:
-            self._send_html(404, "Not Found")
+            if path.startswith("/api/"):
+                self._send_json(404, {"error": "API route not found", "code": "NOT_FOUND"})
+            else:
+                self._send_html(404, "Not Found")
+
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path.startswith("/api/items/"):
+            raw_id = path[len("/api/items/"):]
+            try:
+                item_id = int(raw_id)
+                if item_id in self.items_db:
+                    del self.items_db[item_id]
+                    self.send_response(204)
+                    self.end_headers()
+                else:
+                    self._send_json(404, {"error": "Item not found", "code": "NOT_FOUND", "item_id": item_id})
+            except ValueError:
+                self._send_json(400, {"error": "Invalid item ID format", "code": "INVALID_ID"})
+        else:
+            self._send_json(405, {"error": "Method DELETE not allowed on this path", "code": "METHOD_NOT_ALLOWED"})
 
 
 class DemoServer:
