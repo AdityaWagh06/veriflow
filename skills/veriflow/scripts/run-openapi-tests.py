@@ -177,6 +177,7 @@ def run_openapi_cli(
                 or term in c.name.lower()
                 or term in c.path.lower()
                 or term in c.catalog_id.lower()
+                or (c.operation and c.operation.operation_id and term in c.operation.operation_id.lower())
             ]
 
         preview_data = {
