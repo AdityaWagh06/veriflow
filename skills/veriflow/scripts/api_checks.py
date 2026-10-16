@@ -289,3 +289,163 @@ def check_api_schema_contract(base_url: str, timeout: float = 5.0) -> ApiTestRes
         status_code=resp.status,
         response_body_snippet=resp.body_text[:200],
     )
+
+
+def check_api_client_error_formatting(base_url: str, timeout: float = 5.0) -> ApiTestResult:
+    """Validate that 4xx client errors return structured JSON without stack traces (API-002)."""
+    target_url = f"{base_url.rstrip('/')}/api/items"
+    # Send malformed raw JSON string
+    malformed_raw = '{"name": "broken", "price": '
+    resp = safe_http_request(
+        target_url,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+        body=malformed_raw,
+        timeout=timeout,
+    )
+
+    if resp.status != 400:
+        return ApiTestResult(
+            test_id="API-002",
+            name="HTTP 4xx client error presentation and formatting",
+            status="FAIL",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="POST",
+            status_code=resp.status,
+            error_message=f"Expected HTTP 400 for malformed JSON, got HTTP {resp.status}",
+            evidence=resp.body_text[:200],
+            remediation="Ensure JSON parsing errors return HTTP 400 Bad Request.",
+        )
+
+    if not resp.is_json:
+        return ApiTestResult(
+            test_id="API-002",
+            name="HTTP 4xx client error presentation and formatting",
+            status="FAIL",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="POST",
+            status_code=resp.status,
+            error_message="Client error response is not Content-Type: application/json",
+            evidence=str(resp.headers),
+        )
+
+    # Check for stack trace leakage
+    lower_body = resp.body_text.lower()
+    if "traceback" in lower_body or "syntaxerror" in lower_body or "exception" in lower_body:
+        return ApiTestResult(
+            test_id="API-002",
+            name="HTTP 4xx client error presentation and formatting",
+            status="FAIL",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="POST",
+            status_code=resp.status,
+            error_message="Client error response leaks internal stack trace or exception details",
+            evidence=resp.body_text[:200],
+            remediation="Suppress raw parser exceptions and return sanitized client error JSON.",
+        )
+
+    try:
+        err_data = resp.json()
+        if not isinstance(err_data, dict) or "error" not in err_data:
+            return ApiTestResult(
+                test_id="API-002",
+                name="HTTP 4xx client error presentation and formatting",
+                status="FAIL",
+                duration_ms=resp.duration_ms,
+                url=target_url,
+                method="POST",
+                status_code=resp.status,
+                error_message="Structured error response missing 'error' key",
+                evidence=resp.body_text[:200],
+            )
+    except Exception as exc:
+        return ApiTestResult(
+            test_id="API-002",
+            name="HTTP 4xx client error presentation and formatting",
+            status="FAIL",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="POST",
+            status_code=resp.status,
+            error_message=f"Failed to parse error JSON: {exc}",
+        )
+
+    return ApiTestResult(
+        test_id="API-002",
+        name="HTTP 4xx client error presentation and formatting",
+        status="PASS",
+        duration_ms=resp.duration_ms,
+        url=target_url,
+        method="POST",
+        status_code=resp.status,
+        response_body_snippet=resp.body_text[:200],
+    )
+
+
+def check_api_input_validation(base_url: str, timeout: float = 5.0) -> ApiTestResult:
+    """Validate that invalid inputs (missing required fields, negative values) are rejected with 400 (FORM-001)."""
+    target_url = f"{base_url.rstrip('/')}/api/items"
+    # Send empty name and negative price
+    invalid_payload = json.dumps({"name": "", "price": -50.0})
+    resp = safe_http_request(
+        target_url,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+        body=invalid_payload,
+        timeout=timeout,
+    )
+
+    if resp.status != 400:
+        return ApiTestResult(
+            test_id="FORM-001",
+            name="Input validation and constraint enforcement",
+            status="FAIL",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="POST",
+            status_code=resp.status,
+            error_message=f"Expected HTTP 400 for invalid inputs, got HTTP {resp.status}",
+            evidence=resp.body_text[:200],
+            remediation="Validate payload fields on the server and reject empty names or negative values with HTTP 400.",
+        )
+
+    try:
+        err_data = resp.json()
+        if not isinstance(err_data, dict) or "details" not in err_data:
+            return ApiTestResult(
+                test_id="FORM-001",
+                name="Input validation and constraint enforcement",
+                status="FAIL",
+                duration_ms=resp.duration_ms,
+                url=target_url,
+                method="POST",
+                status_code=resp.status,
+                error_message="Validation error missing 'details' array describing rejected fields",
+                evidence=resp.body_text[:200],
+            )
+    except Exception as exc:
+        return ApiTestResult(
+            test_id="FORM-001",
+            name="Input validation and constraint enforcement",
+            status="FAIL",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="POST",
+            status_code=resp.status,
+            error_message=f"Failed to parse validation error JSON: {exc}",
+        )
+
+    return ApiTestResult(
+        test_id="FORM-001",
+        name="Input validation and constraint enforcement",
+        status="PASS",
+        duration_ms=resp.duration_ms,
+        url=target_url,
+        method="POST",
+        status_code=resp.status,
+        response_body_snippet=resp.body_text[:200],
+    )
+
