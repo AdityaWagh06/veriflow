@@ -449,3 +449,115 @@ def check_api_input_validation(base_url: str, timeout: float = 5.0) -> ApiTestRe
         response_body_snippet=resp.body_text[:200],
     )
 
+
+def check_api_auth_required(base_url: str, timeout: float = 5.0) -> ApiTestResult:
+    """Validate that unauthenticated requests to protected API endpoints return 401 (AUTH-001)."""
+    target_url = f"{base_url.rstrip('/')}/api/profile"
+
+    # 1. Unauthenticated request must return 401
+    unauth_resp = safe_http_request(target_url, method="GET", timeout=timeout)
+    if unauth_resp.status != 401:
+        return ApiTestResult(
+            test_id="AUTH-001",
+            name="Authentication requirement enforcement on protected endpoints",
+            status="FAIL",
+            duration_ms=unauth_resp.duration_ms,
+            url=target_url,
+            method="GET",
+            status_code=unauth_resp.status,
+            error_message=f"Expected HTTP 401 for unauthenticated request, got HTTP {unauth_resp.status}",
+            evidence=unauth_resp.body_text[:200],
+            remediation="Enforce authentication middleware on /api/profile to reject missing tokens with 401.",
+        )
+
+    # 2. Authenticated request with test token must succeed with 200
+    auth_resp = safe_http_request(
+        target_url,
+        method="GET",
+        headers={"Authorization": "Bearer token_user"},
+        timeout=timeout,
+    )
+    if auth_resp.status != 200:
+        return ApiTestResult(
+            test_id="AUTH-001",
+            name="Authentication requirement enforcement on protected endpoints",
+            status="FAIL",
+            duration_ms=auth_resp.duration_ms,
+            url=target_url,
+            method="GET",
+            status_code=auth_resp.status,
+            error_message=f"Expected HTTP 200 with valid bearer token, got HTTP {auth_resp.status}",
+            evidence=auth_resp.body_text[:200],
+        )
+
+    return ApiTestResult(
+        test_id="AUTH-001",
+        name="Authentication requirement enforcement on protected endpoints",
+        status="PASS",
+        duration_ms=unauth_resp.duration_ms + auth_resp.duration_ms,
+        url=target_url,
+        method="GET",
+        status_code=200,
+        response_body_snippet=auth_resp.body_text[:200],
+    )
+
+
+def check_api_role_authorization_denial(base_url: str, timeout: float = 5.0) -> ApiTestResult:
+    """Validate that requests with insufficient privileges return 403 Forbidden (ROLE-003)."""
+    target_url = f"{base_url.rstrip('/')}/api/admin/metrics"
+
+    # 1. Standard user token must be denied with 403
+    user_resp = safe_http_request(
+        target_url,
+        method="GET",
+        headers={"Authorization": "Bearer token_user"},
+        timeout=timeout,
+    )
+
+    if user_resp.status != 403:
+        return ApiTestResult(
+            test_id="ROLE-003",
+            name="Role-based access control and privilege denial",
+            status="FAIL",
+            duration_ms=user_resp.duration_ms,
+            url=target_url,
+            method="GET",
+            status_code=user_resp.status,
+            error_message=f"Expected HTTP 403 for standard user on admin endpoint, got HTTP {user_resp.status}",
+            evidence=user_resp.body_text[:200],
+            remediation="Verify role authorization checks require administrator privileges before serving admin metrics.",
+        )
+
+    # 2. Admin token must succeed with 200
+    admin_resp = safe_http_request(
+        target_url,
+        method="GET",
+        headers={"Authorization": "Bearer token_admin"},
+        timeout=timeout,
+    )
+
+    if admin_resp.status != 200:
+        return ApiTestResult(
+            test_id="ROLE-003",
+            name="Role-based access control and privilege denial",
+            status="FAIL",
+            duration_ms=admin_resp.duration_ms,
+            url=target_url,
+            method="GET",
+            status_code=admin_resp.status,
+            error_message=f"Expected HTTP 200 for admin user, got HTTP {admin_resp.status}",
+            evidence=admin_resp.body_text[:200],
+        )
+
+    return ApiTestResult(
+        test_id="ROLE-003",
+        name="Role-based access control and privilege denial",
+        status="PASS",
+        duration_ms=user_resp.duration_ms + admin_resp.duration_ms,
+        url=target_url,
+        method="GET",
+        status_code=200,
+        response_body_snippet=admin_resp.body_text[:200],
+    )
+
+
