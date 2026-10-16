@@ -323,6 +323,52 @@ python <path-to-skill>/scripts/run-api-tests.py --execute --url http://127.0.0.1
 python <path-to-skill>/scripts/run-api-tests.py --execute --json
 ```
 
+### Phase 4: OpenAPI Contract Verification Engine
+
+When verifying APIs against published OpenAPI contracts, invoke the Phase 4 **OpenAPI Contract Verification Engine** to validate that live API implementations adhere strictly to their documented specifications without schema drift.
+
+#### Automated OpenAPI Verification Capabilities
+Veriflow supports contract-driven testing for OpenAPI 3.0 and 3.1 specifications in JSON and YAML formats:
+1. **Static Specification Validation**: Verifies document structure, required top-level fields (`openapi`, `info`, `paths`), and supported versions without sending live network requests (`CONF-004`).
+2. **Safe Reference Resolution**: Resolves internal JSON Pointer `$ref` references safely, detects circular references without infinite recursion, and blocks path traversal attempts (`../`) and arbitrary remote HTTP `$ref` URLs (`CONF-004`).
+3. **Response Schema Contract Compliance**: Validates that live endpoints return documented status codes, expected `Content-Type` media types (e.g. `application/json`), required properties, correct data types (string, integer, number, boolean, array, object), enums, and numerical min/max boundaries (`API-001`, `RESL-006`).
+4. **Authentication Gate Enforcement**: Verifies operations with declared `security` requirements enforce authentication boundaries, returning HTTP 401 Unauthorized when tokens are omitted (`AUTH-001`).
+5. **Input Validation Boundaries**: Proves invalid inputs or missing required parameters produce HTTP 400 Bad Request responses rather than unhandled server errors (`API-002`).
+6. **Graceful YAML Dependency Handling**: Supports YAML specifications when PyYAML is installed. If PyYAML is missing, Veriflow reports a `BLOCKED` status with explicit installation instructions rather than crashing or silently skipping.
+7. **Strict Separation of Validation & Live Execution**: Allows specification validation independently of endpoint availability. An API can be offline while its spec is valid, or live while violating its contract.
+
+#### Safety Boundaries & Policies
+- **Strict Local Loopback by Default**: Targets must be on `127.0.0.1`, `localhost`, or `::1`. External URLs require explicit `--allow-external` authorization with a safety warning.
+- **Preview by Default**: Running without `--execute` displays planned contract checks without dispatching live HTTP calls.
+- **Zero Third-Party Dependencies for JSON**: Built on Python's standard library (`urllib.request`, `http.server`, `json`).
+- **Credential & Token Redaction**: Authorization headers, Bearer tokens, passwords, and sensitive keys are masked in console diagnostics and JSON reports.
+- **Bounded Response Capture**: Body snippets in failure diagnostics are strictly capped to prevent report bloat.
+- **Non-Destructive by Default**: Potentially state-altering operations (e.g. `DELETE`) are flagged for `MANUAL_REVIEW` under default verification rules.
+
+#### Running OpenAPI Verification
+```bash
+# Preview OpenAPI checks via unified runner
+python <path-to-skill>/scripts/run-checks.py . --check openapi
+
+# Execute OpenAPI checks via unified runner
+python <path-to-skill>/scripts/run-checks.py . --check openapi --execute
+
+# Standalone runner preview
+python <path-to-skill>/scripts/run-openapi-tests.py --spec path/to/openapi.json
+
+# Static specification validation only (zero HTTP requests)
+python <path-to-skill>/scripts/run-openapi-tests.py --spec path/to/openapi.json --validate-spec-only
+
+# Standalone execution against running service
+python <path-to-skill>/scripts/run-openapi-tests.py --spec path/to/openapi.json --url http://127.0.0.1:8000 --execute
+
+# Targeted operation filtering
+python <path-to-skill>/scripts/run-openapi-tests.py --spec path/to/openapi.json --url http://127.0.0.1:8000 --execute --check getHealth
+
+# JSON formatted report
+python <path-to-skill>/scripts/run-openapi-tests.py --spec path/to/openapi.json --url http://127.0.0.1:8000 --execute --json
+```
+
 ### 7. Review Security and Dependencies
 
 - Check input validation and output encoding where appropriate.
