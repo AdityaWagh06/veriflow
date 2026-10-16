@@ -665,4 +665,152 @@ def check_api_defensive_parsing(base_url: str, timeout: float = 5.0) -> ApiTestR
     )
 
 
+def check_api_timeout_handling(base_url: str, timeout: float = 0.5) -> ApiTestResult:
+    """Validate client request timeout handling on slow/hanging endpoints (API-004)."""
+    target_url = f"{base_url.rstrip('/')}/api/faulty/slow"
+    resp = safe_http_request(target_url, method="GET", timeout=timeout)
+
+    # We expect this request to time out gracefully within the short window
+    if resp.is_timeout:
+        return ApiTestResult(
+            test_id="API-004",
+            name="Request timeout and client cancellation handling",
+            status="PASS",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="GET",
+            status_code=0,
+            response_body_snippet=f"Request timed out cleanly after {timeout:.1f}s as expected",
+        )
+
+    # If it responded immediately or completed without timeout, verify duration
+    if resp.duration_ms < (timeout * 1000.0) and resp.status == 200:
+        return ApiTestResult(
+            test_id="API-004",
+            name="Request timeout and client cancellation handling",
+            status="FAIL",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="GET",
+            status_code=resp.status,
+            error_message="Slow endpoint responded before configured timeout threshold",
+        )
+
+    return ApiTestResult(
+        test_id="API-004",
+        name="Request timeout and client cancellation handling",
+        status="PASS",
+        duration_ms=resp.duration_ms,
+        url=target_url,
+        method="GET",
+        status_code=resp.status,
+        response_body_snippet=resp.body_text[:200],
+    )
+
+
+def check_api_dependency_outage(base_url: str, timeout: float = 5.0) -> ApiTestResult:
+    """Validate graceful handling of third-party or internal dependency outages (API-008)."""
+    target_url = f"{base_url.rstrip('/')}/api/dependency/status"
+    resp = safe_http_request(target_url, method="GET", timeout=timeout)
+
+    # Normal state: 200 available. Outage state: 503 with structured fallback response.
+    if resp.status == 200:
+        return ApiTestResult(
+            test_id="API-008",
+            name="Third-party integration outage graceful degradation",
+            status="PASS",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="GET",
+            status_code=200,
+            response_body_snippet=resp.body_text[:200],
+        )
+    elif resp.status == 503:
+        # Structured 503 fallback
+        if resp.is_json:
+            data = resp.json()
+            if "fallback" in data or "code" in data:
+                return ApiTestResult(
+                    test_id="API-008",
+                    name="Third-party integration outage graceful degradation",
+                    status="PASS",
+                    duration_ms=resp.duration_ms,
+                    url=target_url,
+                    method="GET",
+                    status_code=503,
+                    response_body_snippet="503 Service Unavailable returned with structured fallback metadata",
+                )
+
+        return ApiTestResult(
+            test_id="API-008",
+            name="Third-party integration outage graceful degradation",
+            status="FAIL",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="GET",
+            status_code=503,
+            error_message="Dependency outage returned unstructured 503 without fallback details",
+            evidence=resp.body_text[:200],
+        )
+
+    return ApiTestResult(
+        test_id="API-008",
+        name="Third-party integration outage graceful degradation",
+        status="FAIL",
+        duration_ms=resp.duration_ms,
+        url=target_url,
+        method="GET",
+        status_code=resp.status,
+        error_message=f"Unexpected status code {resp.status} on dependency probe",
+        evidence=resp.body_text[:200],
+    )
+
+
+def check_api_rate_limiting(base_url: str, timeout: float = 5.0) -> ApiTestResult:
+    """Validate HTTP 429 Too Many Requests and Retry-After header compliance (API-007)."""
+    target_url = f"{base_url.rstrip('/')}/api/rate-limit-test"
+    resp = safe_http_request(target_url, method="GET", timeout=timeout)
+
+    if resp.status != 429:
+        return ApiTestResult(
+            test_id="API-007",
+            name="HTTP 429 Rate limiting and Retry-After compliance",
+            status="FAIL",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="GET",
+            status_code=resp.status,
+            error_message=f"Expected HTTP 429 from rate limit test endpoint, got HTTP {resp.status}",
+            evidence=resp.body_text[:200],
+            remediation="Ensure rate-limited endpoints emit HTTP 429 status code.",
+        )
+
+    retry_after = resp.headers.get("retry-after")
+    if not retry_after:
+        return ApiTestResult(
+            test_id="API-007",
+            name="HTTP 429 Rate limiting and Retry-After compliance",
+            status="FAIL",
+            duration_ms=resp.duration_ms,
+            url=target_url,
+            method="GET",
+            status_code=resp.status,
+            error_message="HTTP 429 response is missing required 'Retry-After' header",
+            evidence=str(resp.headers),
+            remediation="Include 'Retry-After: <seconds>' header in HTTP 429 responses per RFC 6585.",
+        )
+
+    return ApiTestResult(
+        test_id="API-007",
+        name="HTTP 429 Rate limiting and Retry-After compliance",
+        status="PASS",
+        duration_ms=resp.duration_ms,
+        url=target_url,
+        method="GET",
+        status_code=resp.status,
+        response_body_snippet=f"HTTP 429 confirmed with Retry-After: {retry_after}",
+    )
+
+
+
 
