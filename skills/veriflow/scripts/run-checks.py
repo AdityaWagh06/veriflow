@@ -747,6 +747,68 @@ def _discover_browser_checks(root: Path) -> tuple[list[dict], list[str]]:
     return checks, limitations
 
 
+def _discover_api_checks(root: Path) -> tuple[list[dict], list[str]]:
+    """Discover API and integration verification checks when API test files, specs, or runners are present."""
+    checks = []
+    limitations = []
+
+    has_api_spec = any(
+        (root / name).is_file()
+        for name in (
+            "openapi.json", "openapi.yaml", "openapi.yml",
+            "swagger.json", "swagger.yaml", "swagger.yml"
+        )
+    )
+
+    tests_dir = root / "tests"
+    has_api_tests = False
+    if tests_dir.is_dir():
+        try:
+            has_api_tests = any(tests_dir.glob("test_api_*.py")) or (tests_dir / "api").is_dir()
+        except OSError:
+            pass
+
+    api_runner = Path(__file__).parent / "run-api-tests.py"
+    if not api_runner.is_file():
+        api_runner = root / "skills" / "veriflow" / "scripts" / "run-api-tests.py"
+
+    has_mapping = (root / "skills" / "veriflow" / "references" / "api-test-mapping.json").is_file()
+
+    if has_api_spec or has_api_tests or has_mapping:
+        res = resolve_executable("python", root)
+        exe = res["resolved_path"] or sys.executable
+        if api_runner.is_file():
+            cmd = [exe, str(api_runner), "--execute"]
+            checks.append({
+                "name": "api",
+                "ecosystem": "api",
+                "command": cmd,
+                "reason": "Discovered API verification engine and test suite",
+                "resolved_executable": exe,
+                "resolution_source": res["resolution_source"] or "system_path",
+                "timeout": 60,
+                "executed": False,
+                "status": "proposed",
+            })
+        elif has_api_tests:
+            cmd = [exe, "-m", "unittest", "discover", "tests", "-p", "test_api_*.py"]
+            checks.append({
+                "name": "api",
+                "ecosystem": "api",
+                "command": cmd,
+                "reason": "Discovered API unit/integration tests in tests/",
+                "resolved_executable": exe,
+                "resolution_source": res["resolution_source"] or "system_path",
+                "timeout": 60,
+                "executed": False,
+                "status": "proposed",
+            })
+        else:
+            limitations.append("API specification discovered, but no API verification runner or tests were found.")
+
+    return checks, limitations
+
+
 MAX_OUTPUT_LENGTH = 100_000
 
 
@@ -1394,6 +1456,10 @@ def discover_checks(
     browser_checks, browser_limits = _discover_browser_checks(root_path)
     all_checks.extend(browser_checks)
     all_limitations.extend(browser_limits)
+
+    api_checks, api_limits = _discover_api_checks(root_path)
+    all_checks.extend(api_checks)
+    all_limitations.extend(api_limits)
 
     if not all_checks and not detected_types:
         all_limitations.append("No recognizable project configuration or checks found for the directory.")
