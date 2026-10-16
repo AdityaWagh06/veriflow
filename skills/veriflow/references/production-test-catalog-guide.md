@@ -247,3 +247,52 @@ The mapping between catalog test cases and executable API automation is defined 
   ```bash
   python examples/api-demo/run-demo.py --fault schema
   ```
+
+---
+
+## 11. OpenAPI Contract Verification Mapping (Phase 4)
+
+Phase 4 introduces contract-driven API verification against OpenAPI 3.0 and 3.1 specifications in JSON and YAML formats.
+
+### Mapping Index (`openapi-test-mapping.json`)
+The mapping between catalog test cases and OpenAPI contract verification checks is indexed in [`openapi-test-mapping.json`](openapi-test-mapping.json). Each entry defines:
+- `catalog_id`: The matching production catalog case ID.
+- `name`: Human-readable test name.
+- `category`: Functional category (`API`, `AUTH`, `RESL`, `CONF`).
+- `check_type`: Contract verification routine (`SPEC_VALIDATION`, `ENDPOINT_CONTRACT`, `NEGATIVE_INPUT`, `AUTH_ENFORCEMENT`).
+- `description`: Contract verification rationale and scope.
+- `automation_status`: Verification automation status (`automated`).
+
+### Currently Covered Production Catalog Cases
+The OpenAPI verification engine directly automates and verifies 5 core production-readiness catalog cases:
+1. **`API-001` (OpenAPI Response Schema Contract Verification)**:
+   - Validates that live endpoints return documented status codes, matching `Content-Type` headers, required properties, and correct data types (string, integer, number, boolean, array, object) without schema drift.
+2. **`API-002` (OpenAPI Request Parameter & Body Boundary Validation)**:
+   - Proves that invalid inputs, missing required parameters, or empty request payloads produce HTTP 400 Bad Request client errors rather than unhandled 500 server crashes.
+3. **`AUTH-001` (OpenAPI Security Scheme Gate Enforcement)**:
+   - Verifies that operations with declared `security` schemes (e.g. Bearer tokens) reject unauthenticated requests with HTTP 401 Unauthorized.
+4. **`RESL-006` (OpenAPI Health and Readiness Probe Contract Validation)**:
+   - Verifies that health check and readiness probe endpoints respond within contract bounds with HTTP 200 and healthy status payloads.
+5. **`CONF-004` (OpenAPI Specification Validation & Reference Resolution Integrity)**:
+   - Statically validates OpenAPI 3.0/3.1 document structure, required top-level elements, safe internal `$ref` resolution, circular reference detection, and rejection of directory-escaping path traversal or arbitrary remote `$ref` URLs.
+
+### Clear Distinction of Verification Tiers
+- **Specification Validation (`--validate-spec-only`)**: Static document syntax and reference integrity check without sending live HTTP traffic.
+- **Preview Mode (`--preview`)**: Safe check discovery displaying planned probes without network execution.
+- **Local Automated Contract Execution (`--execute`)**: Live HTTP probes against local loopback fixtures (`127.0.0.1`, `localhost`, `::1`).
+- **External Live Endpoint Checks**: Requires explicit `--allow-external` authorization with target safety warnings.
+- **Manual Review**: Flags potentially destructive HTTP methods (e.g. `DELETE`) or unsupported schema features for human inspection.
+
+### Execution via Veriflow
+- **Via Unified Check Runner**:
+  ```bash
+  python skills/veriflow/scripts/run-checks.py . --check openapi --execute
+  ```
+- **Via Standalone OpenAPI Runner**:
+  ```bash
+  python skills/veriflow/scripts/run-openapi-tests.py --spec path/to/openapi.json --url http://127.0.0.1:8080 --execute
+  ```
+- **Demo Runner with Fault Injection**:
+  ```bash
+  python examples/openapi-demo/run-demo.py --fault missing_field
+  ```

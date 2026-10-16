@@ -60,8 +60,24 @@ For applications that use routes, backend APIs, or external integrations:
 - [ ] Verify server error responses suppress raw stack traces and credentials (`HTTP 500`) (`SEC-009`, `API-003`).
 - [ ] Verify request timeouts and downstream dependency outage handling (`HTTP 503 fallback`) (`RESL-007`, `API-008`).
 - [ ] Verify data consistency across related CRUD operations using disposable test data (`DATA-004`).
-- [ ] Validate HTTP method behavior and 405 Method Not Allowed handling on unsupported verbs (`API-005`).
 - [ ] Check loading, success, empty, and error states where applicable.
+
+### 5b. OpenAPI Contract Verification Engine
+
+For applications publishing or consuming OpenAPI 3.0 or 3.1 specifications:
+
+- [ ] Validate specification structure, required fields (`openapi`, `info`, `paths`), and supported version syntax (`CONF-004`).
+- [ ] Verify local JSON Pointer `$ref` resolution and circular reference prevention (`CONF-004`).
+- [ ] Confirm rejection of remote `$ref` URLs and path-traversal directory escapes (`CONF-004`).
+- [ ] Verify live endpoint status codes match documented responses (`API-001`).
+- [ ] Verify response `Content-Type` headers match documented media types (`API-001`).
+- [ ] Validate response payload schemas: required properties, primitive types, enums, arrays, and numerical constraints (`API-001`).
+- [ ] Validate request body schemas on POST/PUT endpoints (`API-001`).
+- [ ] Verify input boundary enforcement on required parameters (`HTTP 400`) (`API-002`).
+- [ ] Verify authentication gates on protected operations (`HTTP 401`) (`AUTH-001`).
+- [ ] Verify health endpoint status contracts (`HTTP 200`) (`RESL-006`).
+- [ ] Run in preview mode first (`--preview` or `--validate-spec-only`) before live execution.
+- [ ] Enforce local loopback targets by default, requiring explicit `--allow-external` for remote targets.
 
 ## 6. Security
 
