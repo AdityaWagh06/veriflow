@@ -147,6 +147,18 @@ class TestOpenApiRunnerCli(unittest.TestCase):
         self.assertEqual(data["total_checks"], 1)
         self.assertIn("health", data["checks"][0]["check_id"].lower())
 
+    def test_cli_main_check_and_filter_args(self):
+        buf = io.StringIO()
+        test_args = ["run-openapi-tests.py", "--spec", str(self.spec_file), "--check", "health", "--json"]
+        with patch("sys.argv", test_args), patch("sys.stdout", buf):
+            with self.assertRaises(SystemExit) as cm:
+                run_openapi_tests_module.main()
+            self.assertEqual(cm.exception.code, 0)
+
+        data = json.loads(buf.getvalue())
+        self.assertEqual(data["total_checks"], 1)
+        self.assertIn("health", data["checks"][0]["check_id"].lower())
+
 
 if __name__ == "__main__":
     unittest.main()

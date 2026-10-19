@@ -269,6 +269,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--filter",
+        "--check",
+        dest="filter",
         type=str,
         default=None,
         help="Filter checks by operationId, path keyword, or catalog ID.",
