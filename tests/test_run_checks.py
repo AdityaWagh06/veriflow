@@ -124,7 +124,12 @@ class TestRunChecksDiscovery(unittest.TestCase):
         # Must not raise an exception
         res = discover_checks(self.root)
         self.assertIsInstance(res, dict)
-        self.assertEqual(res["discovered_checks"], [])
+        # Intent: a malformed package.json yields no JavaScript checks and does
+        # not raise. Asserted by ecosystem rather than by total count, so an
+        # unrelated phase (such as the read-only security scan, which a .json
+        # file makes applicable) does not break the assertion.
+        js_checks = [c for c in res["discovered_checks"] if c["ecosystem"] in ("javascript", "typescript")]
+        self.assertEqual(js_checks, [])
         self.assertTrue(
             any("No 'test' script found" in lim for lim in res["limitations"])
         )
@@ -338,13 +343,18 @@ class TestRunChecksExecution(unittest.TestCase):
         # 1. Preview mode (execute=False, default)
         preview = discover_checks(self.root, execute=False)
         self.assertFalse(preview["executed"])
-        self.assertEqual(preview["discovered_checks"][0]["status"], "proposed")
-        self.assertFalse(preview["discovered_checks"][0]["executed"])
+        # Intent: every proposed check stays unexecuted in preview mode. Asserted
+        # across all checks instead of a fixed total, so adding a phase cannot
+        # weaken the guarantee this test exists to protect.
+        self.assertTrue(preview["discovered_checks"])
+        for check in preview["discovered_checks"]:
+            self.assertEqual(check["status"], "proposed")
+            self.assertFalse(check["executed"])
         self.assertEqual(preview["summary"]["passed"], 0)
-        self.assertEqual(preview["summary"]["total"], 1)
+        self.assertEqual(preview["summary"]["total"], len(preview["discovered_checks"]))
 
         # 2. Opt-in execution mode (execute=True)
-        executed = discover_checks(self.root, execute=True)
+        executed = discover_checks(self.root, execute=True, check_name="test")
         self.assertTrue(executed["executed"])
         self.assertTrue(executed["discovered_checks"][0]["executed"])
         self.assertIn(executed["discovered_checks"][0]["status"], ("PASS", "FAIL", "COMMAND_NOT_FOUND"))
@@ -357,8 +367,10 @@ class TestRunChecksExecution(unittest.TestCase):
         tests_dir.mkdir()
         (tests_dir / "test_sample.py").write_text("def test_ok(): assert 1 == 1\n", encoding="utf-8")
 
+        # Scoped with --check so the expected total stays deterministic as
+        # phases are added. The unscoped path is covered by test_8.
         proc = subprocess.run(
-            [sys.executable, str(SCRIPT_PATH), str(self.root), "--execute", "--json"],
+            [sys.executable, str(SCRIPT_PATH), str(self.root), "--check", "test", "--execute", "--json"],
             capture_output=True,
             text=True,
         )
@@ -366,6 +378,7 @@ class TestRunChecksExecution(unittest.TestCase):
         self.assertTrue(data["executed"])
         self.assertIn("summary", data)
         self.assertEqual(data["summary"]["total"], 1)
+        self.assertEqual(data["discovered_checks"][0]["name"], "test")
 
     def test_cli_execute_flag_failing_exit_code(self):
         (self.root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
@@ -1078,8 +1091,12 @@ class TestCheckFilter(unittest.TestCase):
 
         res = discover_checks(self.root)
         check_names = {c["name"] for c in res["discovered_checks"]}
-        self.assertEqual(check_names, {"test", "lint"})
-        self.assertEqual(res["summary"]["total"], 2)
+        # Intent: omitting --check discovers every applicable check, so the
+        # Python test and lint checks must both be present. Asserted as a subset
+        # because the security phase is also applicable to this fixture.
+        self.assertTrue({"test", "lint"}.issubset(check_names), check_names)
+        self.assertEqual(res["summary"]["total"], len(res["discovered_checks"]))
+        self.assertGreaterEqual(res["summary"]["total"], 2)
 
     def test_9_cli_invalid_check_returns_clear_error_and_exits_1(self):
         """9. CLI with invalid check name outputs clear error and exits with code 1."""
@@ -1095,7 +1112,10 @@ class TestCheckFilter(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 1)
         self.assertIn("Check 'invalid_name' not found", proc.stderr)
-        self.assertIn("Available checks: test", proc.stderr)
+        # Intent: the error names the checks that *are* available. The list is
+        # alphabetical and grows with each phase, so assert membership.
+        self.assertIn("Available checks:", proc.stderr)
+        self.assertIn("test", proc.stderr)
 
 
 if __name__ == "__main__":

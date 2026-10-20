@@ -37,8 +37,17 @@ _SENSITIVE_PATTERNS = [
     (re.compile(r'((?:api[_-]?key|access[_-]?token|token|password|passwd|secret|auth|client_secret)=)([^&\s\r\n"\'`]+)', re.IGNORECASE), r'\1[REDACTED]'),
     # Cookie headers
     (re.compile(r'((?:set-cookie|cookie):\s*[^=\r\n]+?=)([^;\r\n]+)', re.IGNORECASE), r'\1[REDACTED]'),
-    # JSON sensitive field masking
-    (re.compile(r'("(?:password|token|secret|apiKey|api_key|accessToken|access_token|client_secret)"\s*:\s*")([^"]*)(")', re.IGNORECASE), r'\1[REDACTED]\3'),
+    # JSON sensitive field masking. No \b or exact-name anchor: a prefixed key
+    # such as "stripe_api_key" or "db_password" must be masked too, and an
+    # underscore is a word character so a boundary would exclude it.
+    (re.compile(r'("[A-Za-z0-9_\-]*(?:password|passwd|token|secret|apikey|api_key|credential)[A-Za-z0-9_\-]*"\s*:\s*")([^"]*)(")', re.IGNORECASE), r'\1[REDACTED]\3'),
+    # Credentials embedded in a connection or request URL. Previously uncovered:
+    # a password leaked inside a traceback or error body survived redaction.
+    (re.compile(r'(?i)\b((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp|mssql|ftp|https?)://[^\s:/@\'"]+:)([^\s/@\'"]{3,})(@)'), r'\1[REDACTED]\3'),
+    # Well-known provider key prefixes, which carry no surrounding key name.
+    (re.compile(r'\b((?:sk_live_|sk_test_|rk_live_|xoxb-|xoxp-|ghp_|gho_|github_pat_|AIza))[A-Za-z0-9_\-]{10,}'), r'\1[REDACTED]'),
+    # key: value form (YAML, headers, .env dumps and log lines).
+    (re.compile(r'(?im)^(\s*[A-Za-z0-9_\-]*(?:password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client_secret)[A-Za-z0-9_\-]*\s*[:=]\s*)(\S{4,})$', re.IGNORECASE), r'\1[REDACTED]'),
 ]
 
 

@@ -35,6 +35,22 @@
     {
       "name": "Google SRE Launch Checklist",
       "url": "https://sre.google/sre-book/launch-checklist/"
+    },
+    {
+      "name": "OWASP Top 10:2025",
+      "url": "https://top10.owasp.org/2025/"
+    },
+    {
+      "name": "OWASP Secure Coding with AI Cheat Sheet",
+      "url": "https://cheatsheetseries.owasp.org/cheatsheets/Secure_Coding_with_AI_Cheat_Sheet.html"
+    },
+    {
+      "name": "Stack Overflow 2026 Developer Survey - AI Disruption",
+      "url": "https://survey.stackoverflow.co/2026/technology/data/disruption"
+    },
+    {
+      "name": "Stack Overflow 2025 Developer Survey - AI",
+      "url": "https://survey.stackoverflow.co/2025/ai"
     }
   ],
   "categories": [
@@ -140,7 +156,7 @@
     "both"
   ],
   "summary": {
-    "total_test_cases": 135,
+    "total_test_cases": 145,
     "by_category": {
       "authentication_and_account_flows": 15,
       "routing_and_navigation": 9,
@@ -150,7 +166,7 @@
       "api_and_integration_reliability": 9,
       "ui_quality_and_user_experience": 9,
       "accessibility": 9,
-      "security": 11,
+      "security": 21,
       "performance_and_scalability": 9,
       "resilience_and_reliability": 8,
       "deployment_and_production_configuration": 8,
@@ -159,20 +175,20 @@
       "observability_and_post_deployment_verification": 8
     },
     "by_severity": {
-      "CRITICAL": 45,
-      "HIGH": 65,
-      "MEDIUM": 21,
+      "CRITICAL": 47,
+      "HIGH": 72,
+      "MEDIUM": 22,
       "LOW": 4
     },
     "by_automation_status": {
-      "automated_available": 72,
-      "app_specific_automation": 59,
+      "automated_available": 79,
+      "app_specific_automation": 62,
       "manual_review": 4
     },
     "by_execution_phase": {
-      "pre_deployment": 36,
+      "pre_deployment": 45,
       "post_deployment": 3,
-      "both": 96
+      "both": 97
     }
   },
   "test_cases": [
@@ -4532,6 +4548,366 @@
       "safety_constraints": "Documentation and reporting integrity.",
       "citations": [
         "Google SRE Launch Checklist - Launch Review (https://sre.google/sre-book/launch-checklist/)"
+      ]
+    },
+    {
+      "id": "SEC-012",
+      "category": "security",
+      "subcategory": "injection",
+      "name": "Operating-system command injection defense",
+      "defect_target": "A shell command assembled from untrusted input, or executed through a shell when an argument list would do, allowing command chaining and arbitrary execution",
+      "applicability_rules": {
+        "invokes_subprocess_or_shell": true
+      },
+      "severity": "CRITICAL",
+      "preconditions": [
+        "The application invokes an external process, a shell, or a system utility"
+      ],
+      "steps": [
+        "Locate every call that starts a process (subprocess, child_process, os.system, backticks)",
+        "Determine for each whether a shell is used and whether any argument derives from input",
+        "Verify the call passes an argument list with the shell disabled",
+        "Where a shell is unavoidable, verify every interpolated value is validated against an allowlist",
+        "Run the static scanner rules SEC-INJ-001, SEC-INJ-002 and SEC-INJ-003 over the tree"
+      ],
+      "expected_result": "Process invocations pass argument lists with shell execution disabled, or validate interpolated values against an allowlist; no untrusted value reaches a shell string",
+      "recommended_automation_method": "veriflow_static_security_scan",
+      "automation_status": "automated_available",
+      "evidence_required": [
+        "scanner_rule_id",
+        "file_and_line",
+        "redacted_source_excerpt",
+        "shell_flag_value"
+      ],
+      "execution_phase": "pre_deployment",
+      "safety_constraints": "Static inspection only. Never execute a constructed command to confirm the finding, and never run an injection payload against a live system.",
+      "citations": [
+        "OWASP Top 10:2025 (https://top10.owasp.org/2025/) - A05 Injection",
+        "OWASP Web Security Testing Guide (https://owasp.org/www-project-web-security-testing-guide/)"
+      ]
+    },
+    {
+      "id": "SEC-013",
+      "category": "security",
+      "subcategory": "access_control",
+      "name": "Path traversal and unrestricted file read prevention",
+      "defect_target": "A filesystem path built from request input without confinement, letting '..' segments or an absolute path escape the intended directory",
+      "applicability_rules": {
+        "serves_files_from_disk": true
+      },
+      "severity": "HIGH",
+      "preconditions": [
+        "The application reads, serves, or writes a file whose name derives from a request"
+      ],
+      "steps": [
+        "Locate every file operation whose path derives from request input",
+        "Verify the candidate path is resolved and compared against the intended base directory",
+        "Verify absolute paths and parent-directory segments are rejected",
+        "Request a benign traversal path against a local fixture and confirm it is refused"
+      ],
+      "expected_result": "A path outside the intended base directory is refused with a client error; no file outside the served directory is readable",
+      "recommended_automation_method": "veriflow_static_security_scan",
+      "automation_status": "automated_available",
+      "evidence_required": [
+        "scanner_rule_id",
+        "file_and_line",
+        "resolved_path_comparison",
+        "response_status"
+      ],
+      "execution_phase": "pre_deployment",
+      "safety_constraints": "Probe local fixtures only. Never attempt to read a path outside a disposable test directory, and never target a system you do not own.",
+      "citations": [
+        "OWASP Top 10:2025 (https://top10.owasp.org/2025/) - A01 Broken Access Control",
+        "OWASP Web Security Testing Guide (https://owasp.org/www-project-web-security-testing-guide/)"
+      ]
+    },
+    {
+      "id": "SEC-014",
+      "category": "security",
+      "subcategory": "data_integrity",
+      "name": "Unsafe deserialization of untrusted data prevention",
+      "defect_target": "Deserializing untrusted bytes with a format that can instantiate arbitrary objects (pickle, marshal, unsafe YAML, unrestricted torch.load), giving remote code execution on load",
+      "applicability_rules": {
+        "deserializes_external_data": true
+      },
+      "severity": "CRITICAL",
+      "preconditions": [
+        "The application loads serialized data from a request, a queue, a cache, or a file"
+      ],
+      "steps": [
+        "Locate every deserialization call in the project",
+        "Classify each input source as trusted or untrusted",
+        "Verify untrusted sources use a data-only format (json.loads, yaml.safe_load)",
+        "Verify torch.load or equivalent model loading passes weights_only=True",
+        "Run static scanner rule SEC-DESER-001 over the tree"
+      ],
+      "expected_result": "No untrusted input reaches an object-instantiating deserializer; data-only parsers are used for all external data",
+      "recommended_automation_method": "veriflow_static_security_scan",
+      "automation_status": "automated_available",
+      "evidence_required": [
+        "scanner_rule_id",
+        "file_and_line",
+        "deserializer_name",
+        "input_source_classification"
+      ],
+      "execution_phase": "pre_deployment",
+      "safety_constraints": "Static inspection only. Never construct or deserialize a gadget payload to demonstrate the finding.",
+      "citations": [
+        "OWASP Top 10:2025 (https://top10.owasp.org/2025/) - A08 Software or Data Integrity Failures",
+        "OWASP Web Security Testing Guide (https://owasp.org/www-project-web-security-testing-guide/)"
+      ]
+    },
+    {
+      "id": "SEC-015",
+      "category": "security",
+      "subcategory": "access_control",
+      "name": "Server-Side Request Forgery (SSRF) prevention",
+      "defect_target": "An outbound request to a URL taken from input, letting a caller reach internal services, cloud metadata endpoints, or loopback-only administrative interfaces",
+      "applicability_rules": {
+        "fetches_user_supplied_urls": true
+      },
+      "severity": "HIGH",
+      "preconditions": [
+        "The application fetches a URL, imports from a URL, or renders a remote resource"
+      ],
+      "steps": [
+        "Locate every outbound request whose destination derives from input",
+        "Verify the scheme and host are validated against an allowlist before the request",
+        "Verify loopback, link-local (169.254.0.0/16), and private ranges are rejected",
+        "Verify redirects are not followed to an unvalidated host"
+      ],
+      "expected_result": "Only allowlisted schemes and hosts are fetched; internal, loopback, and link-local destinations are refused, including after a redirect",
+      "recommended_automation_method": "veriflow_static_security_scan",
+      "automation_status": "app_specific_automation",
+      "evidence_required": [
+        "scanner_rule_id",
+        "file_and_line",
+        "allowlist_implementation",
+        "redirect_handling"
+      ],
+      "execution_phase": "pre_deployment",
+      "safety_constraints": "Never probe a real cloud metadata endpoint or an internal host. Veriflow reports this pattern statically and does not attempt an SSRF request.",
+      "citations": [
+        "OWASP Top 10:2025 (https://top10.owasp.org/2025/) - A01 Broken Access Control",
+        "OWASP Web Security Testing Guide (https://owasp.org/www-project-web-security-testing-guide/)"
+      ]
+    },
+    {
+      "id": "SEC-016",
+      "category": "security",
+      "subcategory": "cryptography",
+      "name": "Cryptographic strength and secure randomness verification",
+      "defect_target": "A weak hash used for a password or signature, or a non-cryptographic random source used for a token, session identifier, nonce, salt, or reset code, making the value predictable",
+      "applicability_rules": {
+        "handles_credentials_or_tokens": true
+      },
+      "severity": "HIGH",
+      "preconditions": [
+        "The application stores passwords, issues tokens, or signs data"
+      ],
+      "steps": [
+        "Locate every hash call and classify its purpose as security or non-security",
+        "Verify password storage uses a memory-hard hash (argon2, scrypt, bcrypt)",
+        "Verify integrity and signature use SHA-256 or stronger",
+        "Locate every generated security value and verify its randomness source",
+        "Verify tokens use secrets/os.urandom or crypto.randomBytes, not a general PRNG"
+      ],
+      "expected_result": "Passwords use a memory-hard hash with a per-value salt; every security-relevant random value comes from a cryptographically secure source",
+      "recommended_automation_method": "veriflow_static_security_scan",
+      "automation_status": "automated_available",
+      "evidence_required": [
+        "scanner_rule_id",
+        "file_and_line",
+        "algorithm_name",
+        "randomness_source"
+      ],
+      "execution_phase": "pre_deployment",
+      "safety_constraints": "Never attempt to crack, brute-force, or recover a real credential to demonstrate weakness. Report the algorithm and the source, not a recovered value.",
+      "citations": [
+        "OWASP Top 10:2025 (https://top10.owasp.org/2025/) - A04 Cryptographic Failures",
+        "OWASP Web Security Testing Guide (https://owasp.org/www-project-web-security-testing-guide/)"
+      ]
+    },
+    {
+      "id": "SEC-017",
+      "category": "security",
+      "subcategory": "ai_agent_supply_chain",
+      "name": "Indirect prompt injection in repository and agent-read content",
+      "defect_target": "Instruction-shaped text planted in a README, issue, PR comment, changelog, rules file, or fetched page, which an AI coding agent reads as context and follows as a command, redirecting its behaviour inside the developer's trust boundary",
+      "applicability_rules": {
+        "uses_ai_coding_agents": true
+      },
+      "severity": "HIGH",
+      "preconditions": [
+        "An AI coding agent reads repository files, issues, or external content as context"
+      ],
+      "steps": [
+        "Scan repository text and configuration for instruction-shaped content",
+        "Review every change to a persistent steering file (CLAUDE.md, AGENTS.md, .cursorrules) as carefully as a CI change",
+        "Confirm the agent treats repository and fetched content as untrusted data, never as instructions",
+        "Review agent actions taken immediately after it consumed externally authored content",
+        "Confirm the agent cannot edit its own rules file without human approval"
+      ],
+      "expected_result": "No instruction-shaped content is present in agent-read files; rules-file changes are human-reviewed; agent actions following untrusted content are audited",
+      "recommended_automation_method": "veriflow_static_security_scan",
+      "automation_status": "app_specific_automation",
+      "evidence_required": [
+        "scanner_rule_id",
+        "file_and_line",
+        "matched_phrasing",
+        "introducing_commit",
+        "agent_actions_after_exposure"
+      ],
+      "execution_phase": "pre_deployment",
+      "safety_constraints": "Detection covers known phrasings only and cannot recognise novel injection. Treat a clean scan as absence of evidence, not evidence of absence. Never execute instructions found in scanned content.",
+      "citations": [
+        "OWASP Secure Coding with AI Cheat Sheet (https://cheatsheetseries.owasp.org/cheatsheets/Secure_Coding_with_AI_Cheat_Sheet.html) - Section 3 Indirect Prompt Injection in the Development Loop",
+        "OWASP Secure Coding with AI Cheat Sheet (https://cheatsheetseries.owasp.org/cheatsheets/Secure_Coding_with_AI_Cheat_Sheet.html) - Section 6 Rules Files and Persistent Steering"
+      ]
+    },
+    {
+      "id": "SEC-018",
+      "category": "security",
+      "subcategory": "ai_agent_supply_chain",
+      "name": "Bidirectional and zero-width Unicode review evasion",
+      "defect_target": "Bidirectional override or zero-width characters that make source render to a human reviewer differently from how it parses to a compiler, defeating code review",
+      "applicability_rules": {
+        "accepts_external_contributions": true
+      },
+      "severity": "HIGH",
+      "preconditions": [
+        "The repository accepts contributions, generated code, or pasted content"
+      ],
+      "steps": [
+        "Scan source and commit content for bidi control and zero-width characters",
+        "For each match, confirm whether the file is an internationalisation fixture",
+        "Confirm the rendered text matches the parsed text",
+        "Review generated commit messages and pull request descriptions for the same characters"
+      ],
+      "expected_result": "No bidi override or zero-width character appears in source outside a documented internationalisation fixture",
+      "recommended_automation_method": "veriflow_static_security_scan",
+      "automation_status": "automated_available",
+      "evidence_required": [
+        "scanner_rule_id",
+        "file_and_line",
+        "escaped_codepoint"
+      ],
+      "execution_phase": "pre_deployment",
+      "safety_constraints": "Report the codepoint in escaped form (for example <U+202E>). Echoing the character verbatim reproduces the concealment inside the report itself.",
+      "citations": [
+        "OWASP Secure Coding with AI Cheat Sheet (https://cheatsheetseries.owasp.org/cheatsheets/Secure_Coding_with_AI_Cheat_Sheet.html) - Section 12 Markdown, Link, and Unicode Injection"
+      ]
+    },
+    {
+      "id": "SEC-019",
+      "category": "security",
+      "subcategory": "ai_agent_supply_chain",
+      "name": "Install-time and build-time script execution review",
+      "defect_target": "A package manifest install hook, build script, Dockerfile, or CI step that fetches from the network or shells out, running automatically with the developer's or the pipeline's full privileges",
+      "applicability_rules": {
+        "has_package_manifest": true
+      },
+      "severity": "HIGH",
+      "preconditions": [
+        "The project has a package manifest, build script, container definition, or CI workflow"
+      ],
+      "steps": [
+        "Inspect preinstall, postinstall and prepare hooks for network access or shell execution",
+        "Diff build scripts, container definitions and CI workflows as carefully as source",
+        "Verify third-party CI actions are pinned to a commit SHA rather than a mutable tag",
+        "Confirm any change to these files was introduced deliberately and reviewed"
+      ],
+      "expected_result": "No install hook fetches from the network or executes a shell; build and CI definitions are reviewed and third-party actions are SHA-pinned",
+      "recommended_automation_method": "veriflow_static_security_scan",
+      "automation_status": "automated_available",
+      "evidence_required": [
+        "scanner_rule_id",
+        "file_and_line",
+        "hook_name",
+        "command_string"
+      ],
+      "execution_phase": "pre_deployment",
+      "safety_constraints": "Never run the install hook to find out what it does. Read it. Veriflow performs no installation during verification.",
+      "citations": [
+        "OWASP Secure Coding with AI Cheat Sheet (https://cheatsheetseries.owasp.org/cheatsheets/Secure_Coding_with_AI_Cheat_Sheet.html) - Section 10 Prompt-to-Code Supply Chain Risk",
+        "OWASP Secure Coding with AI Cheat Sheet (https://cheatsheetseries.owasp.org/cheatsheets/Secure_Coding_with_AI_Cheat_Sheet.html) - Section 11 CI/CD Agents and Confused Deputy Risk",
+        "OWASP Top 10:2025 (https://top10.owasp.org/2025/) - A03 Software Supply Chain Failures"
+      ]
+    },
+    {
+      "id": "SEC-020",
+      "category": "security",
+      "subcategory": "ai_agent_supply_chain",
+      "name": "Hallucinated, unpinned and vulnerable dependency verification",
+      "defect_target": "A dependency that does not exist (and can be registered by an attacker), a real package referenced under the wrong import name, an unpinned version that drifts on rebuild, or a version with a known published vulnerability",
+      "applicability_rules": {
+        "has_dependency_manifest": true
+      },
+      "severity": "HIGH",
+      "preconditions": [
+        "The project declares dependencies in a manifest",
+        "A dependency auditing tool is available, or the audit is reported as BLOCKED"
+      ],
+      "steps": [
+        "For each newly added dependency, confirm the package exists on its registry",
+        "Check the registry page for maintainer, download history and creation date; treat a very new package with low downloads as suspect",
+        "Confirm the import name matches the distribution name",
+        "Verify every dependency is version-pinned and the lockfile is committed",
+        "Run the ecosystem's audit tool (pip-audit, npm audit, cargo audit) and record its output",
+        "Report BLOCKED when no audit tool is available: absence of a report is not a clean result"
+      ],
+      "expected_result": "Every dependency exists, is pinned, has a committed lockfile, and carries no known vulnerability according to an executed audit tool whose output is recorded",
+      "recommended_automation_method": "external_dependency_audit_tool",
+      "automation_status": "app_specific_automation",
+      "evidence_required": [
+        "manifest_path",
+        "package_name_and_version",
+        "registry_verification",
+        "audit_tool_name_and_version",
+        "audit_tool_output"
+      ],
+      "execution_phase": "pre_deployment",
+      "safety_constraints": "Never install an unfamiliar package to find out whether it exists. Verify identity on the registry first. Veriflow bundles no vulnerability database and will not fetch one during verification; the audit tool's own output is the evidence.",
+      "citations": [
+        "OWASP Secure Coding with AI Cheat Sheet (https://cheatsheetseries.owasp.org/cheatsheets/Secure_Coding_with_AI_Cheat_Sheet.html) - Section 1 Hallucinated Dependencies",
+        "OWASP Secure Coding with AI Cheat Sheet (https://cheatsheetseries.owasp.org/cheatsheets/Secure_Coding_with_AI_Cheat_Sheet.html) - Section 2 Outdated Dependencies with Known CVEs",
+        "OWASP Top 10:2025 (https://top10.owasp.org/2025/) - A03 Software Supply Chain Failures",
+        "Stack Overflow 2026 Developer Survey, AI disruption: 45.1% of 13,648 respondents reported hallucinated package or config costing their team time (https://survey.stackoverflow.co/2026/technology/data/disruption)"
+      ]
+    },
+    {
+      "id": "SEC-021",
+      "category": "security",
+      "subcategory": "error_handling",
+      "name": "Silent exception suppression and security logging gaps",
+      "defect_target": "An exception handler that discards the failure, turning a real error into a passing result and leaving a security-relevant event with no audit record",
+      "applicability_rules": {
+        "handles_exceptions": true
+      },
+      "severity": "MEDIUM",
+      "preconditions": [
+        "The application contains exception handlers"
+      ],
+      "steps": [
+        "Locate every handler whose body discards the exception",
+        "For each, determine whether the failure genuinely carries no information",
+        "Verify authentication failures, authorization denials and validation rejections are logged",
+        "Verify log records carry enough context to investigate and no credential values"
+      ],
+      "expected_result": "No handler silently discards a failure; security-relevant events are logged with context and without credentials",
+      "recommended_automation_method": "veriflow_static_security_scan",
+      "automation_status": "automated_available",
+      "evidence_required": [
+        "scanner_rule_id",
+        "file_and_line",
+        "handler_body",
+        "log_statement_presence"
+      ],
+      "execution_phase": "both",
+      "safety_constraints": "A deliberate best-effort path is a documented false positive. Never add a credential to a log statement in order to improve its context.",
+      "citations": [
+        "OWASP Top 10:2025 (https://top10.owasp.org/2025/) - A09 Security Logging and Alerting Failures",
+        "OWASP Top 10:2025 (https://top10.owasp.org/2025/) - A10 Mishandling of Exceptional Conditions"
       ]
     }
   ]

@@ -809,6 +809,105 @@ def _discover_api_checks(root: Path) -> tuple[list[dict], list[str]]:
     return checks, limitations
 
 
+def _has_scannable_source(root: Path, limit: int = 400) -> bool:
+    """Return True when the tree holds at least one file the scanner can read.
+
+    Walks at most ``limit`` entries and stops at the first match, so this stays
+    cheap on a large repository. Vendored and generated directories are skipped
+    for the same reason the scanner skips them: a finding there describes
+    someone else's code.
+    """
+    source_suffixes = {
+        ".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".rb", ".php",
+        ".go", ".rs", ".java", ".kt", ".cs", ".sh", ".ps1", ".sql",
+        ".yml", ".yaml", ".json", ".toml", ".ini", ".cfg", ".tf",
+        ".html", ".vue", ".svelte",
+    }
+    skip_dirs = {
+        ".git", "node_modules", "__pycache__", ".venv", "venv", "env",
+        ".tox", ".nox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+        "dist", "build", "target", "vendor", "site-packages", "coverage",
+    }
+    seen = 0
+    stack = [root]
+    while stack and seen < limit:
+        current = stack.pop()
+        try:
+            entries = list(current.iterdir())
+        except (OSError, PermissionError):
+            continue
+        for entry in entries:
+            seen += 1
+            if seen >= limit:
+                break
+            try:
+                if entry.is_dir():
+                    if entry.name not in skip_dirs and not entry.is_symlink():
+                        stack.append(entry)
+                elif entry.suffix in source_suffixes or entry.name.startswith(".env"):
+                    return True
+            except OSError:
+                continue
+    return False
+
+
+def _discover_security_checks(root: Path) -> tuple[list[dict], list[str]]:
+    """Discover the security phase.
+
+    Unlike the browser, API and OpenAPI phases, the static half of the security
+    scan has no prerequisite at all: it reads source files and needs no running
+    service, no spec and no optional package. It is therefore proposed for every
+    project that contains scannable source, which makes it the one security
+    check that is always available.
+    """
+    checks: list[dict] = []
+    limitations: list[str] = []
+
+    security_runner = Path(__file__).parent / "run-security-tests.py"
+    if not security_runner.is_file():
+        security_runner = root / "skills" / "veriflow" / "scripts" / "run-security-tests.py"
+
+    if not security_runner.is_file():
+        limitations.append(
+            "Security verification runner (run-security-tests.py) was not found beside the "
+            "skill scripts, so the security phase is unavailable."
+        )
+        return checks, limitations
+
+    # Nothing to scan means nothing to propose. Offering a security scan for an
+    # empty directory would report a clean result over zero files, which is the
+    # kind of vacuous pass Veriflow exists to prevent.
+    if not _has_scannable_source(root):
+        return checks, limitations
+
+    res = resolve_executable("python", root)
+    exe = res["resolved_path"] or sys.executable
+
+    checks.append({
+        "name": "security",
+        "ecosystem": "security",
+        "command": [exe, str(security_runner), str(root)],
+        "reason": (
+            "Static security scan (read-only): secrets, injection, deserialisation, "
+            "crypto, configuration, error hygiene and AI-agent supply-chain patterns"
+        ),
+        "resolved_executable": exe,
+        "resolution_source": res["resolution_source"] or "system_path",
+        "timeout": 120,
+        "executed": False,
+        "status": "proposed",
+    })
+
+    limitations.append(
+        "Security phase covers the STATIC scan only. Live security checks (headers, "
+        "cookie flags, output encoding, access control, cross-user isolation, error "
+        "disclosure, redirects, CSRF) need a running service and are opt-in: "
+        "run-security-tests.py --url <loopback-url> --execute."
+    )
+
+    return checks, limitations
+
+
 def _discover_openapi_checks(root: Path) -> tuple[list[dict], list[str]]:
     """Discover OpenAPI contract verification checks when OpenAPI specifications, tests, or runners are present."""
     checks = []
@@ -1541,6 +1640,10 @@ def discover_checks(
     openapi_checks, openapi_limits = _discover_openapi_checks(root_path)
     all_checks.extend(openapi_checks)
     all_limitations.extend(openapi_limits)
+
+    security_checks, security_limits = _discover_security_checks(root_path)
+    all_checks.extend(security_checks)
+    all_limitations.extend(security_limits)
 
     if not all_checks and not detected_types:
         all_limitations.append("No recognizable project configuration or checks found for the directory.")

@@ -1,0 +1,17 @@
+# Veriflow's own static-security-scan exclusions.
+#
+# Every path below deliberately contains vulnerable code samples: the scanner's
+# rule definitions are made of the patterns it looks for, and its tests and
+# fixtures exist to prove each rule fires. A finding in any of them is expected,
+# so scanning them buries the real findings in noise.
+#
+# Exclusions are disclosed: the scan report states how many files these patterns
+# removed and lists the patterns themselves.
+
+# The rule set itself: 26 regexes describing insecure code.
+skills/veriflow/scripts/security_scanner.py
+
+# Fault-detection fixtures and the deliberately insecure demo server.
+tests/test_security_scanner.py
+tests/test_security_live_checks.py
+examples/security-demo/server.py

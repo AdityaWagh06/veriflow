@@ -32,6 +32,19 @@ class UnsafeTargetError(ValueError):
     pass
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Surfaces a redirect as a response instead of following it.
+
+    Two reasons a caller may not want urlopen's default behaviour:
+    inspecting the Location header is the only way to verify redirect handling,
+    and following a redirect would send a request to a host the safety policy
+    never validated.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102 - stdlib API
+        return None
+
+
 def is_local_target(url_or_host: str) -> bool:
     """Check if the given URL or host resolves to a local/loopback destination."""
     if not url_or_host:
@@ -127,6 +140,7 @@ def safe_http_request(
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
     allow_external: bool = False,
+    follow_redirects: bool = True,
 ) -> SafeHttpResponse:
     """Safely executes an HTTP request within bounded limits.
 
@@ -134,6 +148,12 @@ def safe_http_request(
     - Enforces timeout.
     - Captures at most max_body_bytes.
     - Handles standard HTTP errors (4xx, 5xx) as valid structured responses rather than unhandled exceptions.
+
+    Args:
+        follow_redirects: When False, a 3xx is returned as the response itself
+            (status and Location header intact) instead of being followed. Set
+            this when the redirect is the thing under test, or when following it
+            would reach a host the safety policy has not validated.
     """
     start_time = time.perf_counter()
     normalized_url = validate_target_url(url, allow_external=allow_external)
@@ -160,7 +180,12 @@ def safe_http_request(
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        if follow_redirects:
+            opener = urllib.request.urlopen
+        else:
+            opener = urllib.request.build_opener(_NoRedirectHandler()).open
+
+        with opener(req, timeout=timeout) as resp:
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             resp_headers = {k.lower(): v for k, v in resp.headers.items()}
             raw_bytes = resp.read(max_body_bytes)
