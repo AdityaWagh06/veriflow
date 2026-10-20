@@ -11,6 +11,8 @@ import subprocess
 import sys
 import unittest
 
+from tests.optional_deps import require_pyyaml
+
 DEMO_RUNNER = Path(__file__).parent.parent / "examples" / "openapi-demo" / "run-demo.py"
 
 
@@ -40,6 +42,8 @@ class TestOpenApiDemoExample(unittest.TestCase):
         self.assertIn("[PASS] Document structure and schema references are valid", proc.stdout)
 
     def test_demo_validate_spec_only_yaml(self):
+        require_pyyaml()
+
         proc = subprocess.run(
             [sys.executable, str(DEMO_RUNNER), "--yaml", "--validate-spec-only"],
             capture_output=True,
@@ -64,6 +68,8 @@ class TestOpenApiDemoExample(unittest.TestCase):
         self.assertGreaterEqual(report["summary"]["PASS"], 8)
 
     def test_demo_clean_execution_yaml(self):
+        require_pyyaml()
+
         proc = subprocess.run(
             [sys.executable, str(DEMO_RUNNER), "--yaml", "--format", "json"],
             capture_output=True,

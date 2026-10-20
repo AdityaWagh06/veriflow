@@ -19,6 +19,12 @@ def detect_project(root: Path | str) -> dict:
             "Pipfile",
             "poetry.lock",
             "uv.lock",
+            # Test-only and tool-only Python projects carry no packaging manifest.
+            # Without these markers a test suite driven solely by pytest.ini or a
+            # conftest.py is reported as having no ecosystem at all.
+            "pytest.ini",
+            "tox.ini",
+            "conftest.py",
         ],
         "javascript": ["package.json"],
         "typescript": ["tsconfig.json"],

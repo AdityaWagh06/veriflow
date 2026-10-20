@@ -9,6 +9,8 @@ import importlib.util
 from pathlib import Path
 import unittest
 
+from tests.optional_deps import require_pyyaml
+
 from skills.veriflow.scripts.openapi_checks import (
     generate_contract_checks,
     run_openapi_contract_verification,
@@ -47,6 +49,8 @@ class TestOpenApiFailureDetection(unittest.TestCase):
             server.stop()
 
     def test_clean_yaml_fixture_passes_all_contract_checks(self):
+        require_pyyaml()
+
         spec = load_openapi_spec(SPEC_YAML)
         server = OpenApiDemoServer(port=0, fault="")
         url = server.start()

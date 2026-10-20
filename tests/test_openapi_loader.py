@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from tests.optional_deps import require_pyyaml
+
 from skills.veriflow.scripts.openapi_loader import (
     OpenApiBlockedError,
     OpenApiOperation,
@@ -67,6 +69,8 @@ class TestOpenApiLoader(unittest.TestCase):
         self.assertEqual(spec.title, "Next Gen API")
 
     def test_load_valid_openapi_yaml(self):
+        require_pyyaml()
+
         yaml_content = """
 openapi: 3.0.1
 info:

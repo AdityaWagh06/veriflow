@@ -44,7 +44,17 @@ class TestDetectProject(unittest.TestCase):
         self.assertEqual(result["project_root"], str(self.root.resolve()))
 
     def test_python_detection_markers(self):
-        for marker in ("pyproject.toml", "setup.py", "requirements.txt", "Pipfile"):
+        for marker in (
+            "pyproject.toml",
+            "setup.py",
+            "requirements.txt",
+            "Pipfile",
+            # Regression: a Python project whose only marker is a test
+            # configuration (no packaging manifest) must still be detected.
+            "pytest.ini",
+            "tox.ini",
+            "conftest.py",
+        ):
             with self.subTest(marker=marker):
                 sub = self.root / f"proj_{marker}"
                 sub.mkdir()
