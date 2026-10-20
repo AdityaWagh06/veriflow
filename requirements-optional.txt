@@ -1,0 +1,18 @@
+# Veriflow optional dependencies.
+#
+# Neither of these is required. Each one enables exactly one capability, and
+# when it is absent the affected checks report BLOCKED with remediation rather
+# than failing or silently passing.
+#
+#   pip install -r requirements-optional.txt
+#
+# playwright also needs browser binaries, which is a separate explicit step
+# Veriflow will never run for you:
+#
+#   python -m playwright install chromium
+
+# Browser and user-journey verification (15 journeys).
+playwright>=1.40
+
+# YAML OpenAPI specifications. JSON specifications need nothing.
+PyYAML>=6.0

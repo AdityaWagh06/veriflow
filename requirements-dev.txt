@@ -1,0 +1,12 @@
+# Veriflow development dependencies.
+#
+# Veriflow's engines are pure Python standard library. The only thing needed to
+# run the test suite is a test runner.
+#
+#   pip install -r requirements-dev.txt
+#   python -m pytest tests -q
+#
+# Pinned to a minimum rather than an exact version: Veriflow uses no pytest
+# plugin API and no fixture feature newer than 7.x, so a floor is honest and an
+# exact pin would be a maintenance cost with no benefit.
+pytest>=7.0
