@@ -988,8 +988,55 @@ def _discover_openapi_checks(root: Path) -> tuple[list[dict], list[str]]:
 MAX_OUTPUT_LENGTH = 100_000
 
 
+def _load_redactor():
+    """Return the shared credential redaction function, or None.
+
+    The API, OpenAPI, browser and security engines all redact through
+    api_reporter. The core runner did not, so a credential appearing in a test
+    failure, a traceback, an environment dump or a verbose build log was written
+    verbatim into the JSON report and the terminal. Reports get pasted into
+    issues, so that was a leak path.
+    """
+    scripts_dir = Path(__file__).resolve().parent
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    try:
+        from skills.veriflow.scripts.api_reporter import redact_api_data
+
+        return redact_api_data
+    except ImportError:
+        pass
+    try:
+        from api_reporter import redact_api_data
+
+        return redact_api_data
+    except ImportError:
+        return None
+
+
+_REDACT_FN = _load_redactor()
+
+
+def _redaction_available() -> bool:
+    """True when captured output is redacted before it is reported."""
+    return _REDACT_FN is not None
+
+
+def redact_output(text: str) -> str:
+    """Mask credentials in captured process output."""
+    if not text or _REDACT_FN is None:
+        return text
+    return _REDACT_FN(text)
+
+
 def _truncate_output(text: str, max_len: int = MAX_OUTPUT_LENGTH) -> str:
-    """Safely cap excessively long process output with an omission notice."""
+    """Redact credentials, then cap excessively long process output.
+
+    Redaction runs first: truncating first could split a credential across the
+    boundary so neither half matches a pattern, leaving the leading fragment in
+    the report.
+    """
+    text = redact_output(text)
     if text and len(text) > max_len:
         omitted = len(text) - max_len
         return text[:max_len] + f"\n... [output truncated: {omitted} characters omitted] ..."
