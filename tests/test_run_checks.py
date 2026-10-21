@@ -1120,3 +1120,44 @@ class TestCheckFilter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestOutputRedaction(unittest.TestCase):
+    """Captured process output must not carry credentials into a report.
+
+    The core runner writes stdout and stderr into its JSON report. A test
+    failure, traceback, environment dump or verbose build log can contain a
+    credential, and reports get pasted into issues.
+    """
+
+    def test_redaction_is_active(self):
+        self.assertTrue(
+            run_checks_module._redaction_available(),
+            "the shared redactor must be importable, or output is reported raw",
+        )
+
+    def test_credentials_are_masked_in_captured_output(self):
+        cases = [
+            ('{"api_key": "Kf8sLq2mXz9vNb4t"}', "Kf8sLq2mXz9vNb4t"),
+            ("postgresql://admin:Qx7LbN4tKp8s@db:5432/app", "Qx7LbN4tKp8s"),
+            ("DB_PASSWORD=Kf8sLq2mXz9vNb4t", "Kf8sLq2mXz9vNb4t"),
+            ("Authorization: Bearer abc123def456ghi789", "abc123def456ghi789"),
+        ]
+        for text, secret in cases:
+            with self.subTest(text=text):
+                redacted = run_checks_module._truncate_output(text)
+                self.assertNotIn(secret, redacted)
+                self.assertIn("[REDACTED]", redacted)
+
+    def test_ordinary_output_is_left_intact(self):
+        """Redaction must not mangle the diagnostics it sits in front of."""
+        text = '  File "app.py", line 3, in <module>\nNameError: name \'x\' is not defined'
+        self.assertEqual(run_checks_module._truncate_output(text), text)
+
+    def test_redaction_runs_before_truncation(self):
+        """Truncating first could split a credential so neither half matches."""
+        secret = "Kf8sLq2mXz9vNb4tRw7pZx2L"
+        padding = "x" * (run_checks_module.MAX_OUTPUT_LENGTH - 12)
+        text = f"{padding}api_key={secret}"
+        redacted = run_checks_module._truncate_output(text)
+        self.assertNotIn(secret, redacted)
+        self.assertNotIn(secret[:10], redacted)
