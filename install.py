@@ -1,36 +1,49 @@
 #!/usr/bin/env python3
 """
-Veriflow installer for Claude Code.
+Veriflow installer for Claude Code and Codex.
 
-Claude Code discovers skills in two places and nowhere else:
+Both agents use the same open Agent Skills shape -- a directory containing a
+``SKILL.md`` with ``name``/``description`` frontmatter, read with progressive
+disclosure -- but they scan different paths:
 
-  - ``<project>/.claude/skills/<name>/SKILL.md``  (project: this repo only)
-  - ``~/.claude/skills/<name>/SKILL.md``          (personal: all your projects)
+  Claude Code:
+    - ``<project>/.claude/skills/<name>/SKILL.md``  (project: this repo only)
+    - ``~/.claude/skills/<name>/SKILL.md``          (personal: all your projects)
 
-Veriflow's source tree lives at ``skills/veriflow/``, which Claude Code does
-not scan. This script copies that directory into one of the two locations
-above.
+  Codex (CLI, IDE extension, app):
+    - ``<project>/.agents/skills/<name>/SKILL.md``  (project: this repo only)
+    - ``~/.agents/skills/<name>/SKILL.md``          (personal: all your projects)
+
+Veriflow's source tree lives at ``skills/veriflow/``, which neither agent
+scans directly. This script copies that one directory into whichever of the
+four locations above you ask for. The content is identical for both agents --
+only the destination path differs -- so nothing is duplicated or maintained
+twice.
 
 Design rules:
 
 - **Nothing happens without being told where.** ``--project`` or ``--personal``
-  is required; there is no default destination.
+  is required; there is no default scope. ``--platform`` defaults to ``both``,
+  since installing for an agent you don't use costs nothing and installing for
+  only one is one flag away (``--platform claude`` or ``--platform codex``).
 - **Dry run first.** ``--dry-run`` prints every file operation and changes
   nothing.
 - **Idempotent.** Re-running produces the same result and reports what changed.
 - **Never clobbers silently.** An existing installation that Veriflow did not
   write is backed up to a timestamped sibling directory, and the backup path is
   printed. ``--force`` is required to replace it at all.
-- **Nothing global is touched.** No Claude Code setting, no registry key, no
-  PATH entry, no environment variable. Only the one skill directory.
+- **Nothing global is touched.** No agent setting, no registry key, no PATH
+  entry, no environment variable. Only the skill directory or directories
+  requested.
 - **Reversible.** ``--uninstall`` removes exactly what was installed, and
   refuses to touch a directory that is not a Veriflow installation.
 
 Windows PowerShell examples:
 
     python install.py --project --dry-run
-    python install.py --project
-    python install.py --personal
+    python install.py --project                        # both agents
+    python install.py --project --platform claude       # Claude Code only
+    python install.py --personal --platform codex        # Codex only
     python install.py --personal --uninstall
     python install.py --project --verify
 """
@@ -47,11 +60,24 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-#: Name of the installed skill directory. Claude Code matches on this.
+#: Name of the installed skill directory. Both agents match on this.
 SKILL_NAME = "veriflow"
 
 #: Source directory, relative to this script.
 SOURCE_DIR = Path(__file__).resolve().parent / "skills" / SKILL_NAME
+
+#: The skills-folder name each agent scans for, keyed by platform id.
+#: Both are the same open Agent Skills shape; only this leaf name differs.
+PLATFORM_SKILLS_DIRNAME: Dict[str, str] = {
+    "claude": ".claude",
+    "codex": ".agents",
+}
+
+#: Display name for messages, keyed by platform id.
+PLATFORM_LABEL: Dict[str, str] = {
+    "claude": "Claude Code",
+    "codex": "Codex",
+}
 
 #: Marker written into every installation. Its presence is what lets
 #: --uninstall tell a Veriflow installation from a directory someone else owns.
@@ -72,28 +98,39 @@ class InstallError(RuntimeError):
 # --------------------------------------------------------------------------- #
 
 
-def personal_skills_dir() -> Path:
-    """Return the per-user Claude Code skills directory.
+def personal_skills_dir(platform: str) -> Path:
+    """Return the per-user skills directory for ``platform`` ("claude" or "codex").
 
     ``Path.home()`` resolves ``%USERPROFILE%`` on Windows and ``$HOME``
-    elsewhere, which is exactly where Claude Code looks.
+    elsewhere, which is exactly where both agents look.
     """
-    return Path.home() / ".claude" / "skills"
+    return Path.home() / PLATFORM_SKILLS_DIRNAME[platform] / "skills"
 
 
-def project_skills_dir(project_root: Path) -> Path:
-    """Return the project-level Claude Code skills directory."""
-    return project_root / ".claude" / "skills"
+def project_skills_dir(project_root: Path, platform: str) -> Path:
+    """Return the project-level skills directory for ``platform``."""
+    return project_root / PLATFORM_SKILLS_DIRNAME[platform] / "skills"
 
 
-def resolve_destination(args: argparse.Namespace) -> Tuple[Path, str]:
-    """Return ``(destination, scope_label)`` for the requested scope."""
+def resolve_destinations(args: argparse.Namespace) -> List[Tuple[Path, str, str]]:
+    """Return one ``(destination, scope_label, platform)`` tuple per requested platform.
+
+    ``args.platforms`` is always a non-empty list of ``"claude"`` / ``"codex"``,
+    so this always returns at least one destination.
+    """
+    destinations: List[Tuple[Path, str, str]] = []
+
     if args.personal:
-        return personal_skills_dir() / SKILL_NAME, "personal"
+        for platform in args.platforms:
+            destinations.append((personal_skills_dir(platform) / SKILL_NAME, "personal", platform))
+        return destinations
+
     project_root = Path(args.project_root).resolve()
     if not project_root.is_dir():
         raise InstallError(f"Project root does not exist: {project_root}")
-    return project_skills_dir(project_root) / SKILL_NAME, "project"
+    for platform in args.platforms:
+        destinations.append((project_skills_dir(project_root, platform) / SKILL_NAME, "project", platform))
+    return destinations
 
 
 # --------------------------------------------------------------------------- #
@@ -176,14 +213,14 @@ def back_up(destination: Path, dry_run: bool) -> Path:
     return backup
 
 
-def install(destination: Path, scope: str, args: argparse.Namespace) -> int:
+def install(destination: Path, scope: str, platform: str, args: argparse.Namespace) -> int:
     """Copy the skill into ``destination``. Returns a process exit code."""
     relative_files = iter_source_files()
     marker = read_marker(destination)
     backup: Optional[Path] = None
 
     print(f"Source:      {SOURCE_DIR}")
-    print(f"Destination: {destination}   [{scope}]")
+    print(f"Destination: {destination}   [{scope} / {PLATFORM_LABEL[platform]}]")
     print(f"Files:       {len(relative_files)}")
     print()
 
@@ -265,18 +302,18 @@ def install(destination: Path, scope: str, args: argparse.Namespace) -> int:
     print(f"Installed {len(relative_files)} files to {destination}")
     print()
     print("Next steps:")
-    print("  1. Restart Claude Code, or start a new session, so it rescans skills.")
+    print(f"  1. Restart {PLATFORM_LABEL[platform]}, or start a new session, so it rescans skills.")
     print("  2. Confirm discovery by asking: \"what skills do you have available?\"")
-    print(f"  3. Verify the installation: python install.py --{scope} --verify")
+    print(f"  3. Verify the installation: python install.py --{scope} --platform {platform} --verify")
     if scope == "personal":
         print()
         print("Note: a personal installation applies to every project you open.")
     return 0
 
 
-def uninstall(destination: Path, scope: str, args: argparse.Namespace) -> int:
+def uninstall(destination: Path, scope: str, platform: str, args: argparse.Namespace) -> int:
     """Remove an installation, refusing anything Veriflow did not write."""
-    print(f"Target: {destination}   [{scope}]")
+    print(f"Target: {destination}   [{scope} / {PLATFORM_LABEL[platform]}]")
 
     if not destination.exists():
         print("Nothing installed there. Nothing to do.")
@@ -295,7 +332,7 @@ def uninstall(destination: Path, scope: str, args: argparse.Namespace) -> int:
 
     shutil.rmtree(destination)
     print("Removed.")
-    print("Restart Claude Code so it stops offering the skill.")
+    print(f"Restart {PLATFORM_LABEL[platform]} so it stops offering the skill.")
 
     # Clean up the parent only when empty, so a sibling skill is never affected.
     parent = destination.parent
@@ -308,21 +345,21 @@ def uninstall(destination: Path, scope: str, args: argparse.Namespace) -> int:
     return 0
 
 
-def verify(destination: Path, scope: str) -> int:
+def verify(destination: Path, scope: str, platform: str) -> int:
     """Check that an installation is complete and discoverable."""
-    print(f"Verifying: {destination}   [{scope}]")
+    print(f"Verifying: {destination}   [{scope} / {PLATFORM_LABEL[platform]}]")
     print()
 
     problems: List[str] = []
 
     if not destination.is_dir():
         print(f"NOT INSTALLED: {destination} does not exist.")
-        print(f"Install it with: python install.py --{scope}")
+        print(f"Install it with: python install.py --{scope} --platform {platform}")
         return 1
 
     skill_md = destination / "SKILL.md"
     if not skill_md.is_file():
-        problems.append("SKILL.md is missing, so Claude Code cannot discover the skill.")
+        problems.append(f"SKILL.md is missing, so {PLATFORM_LABEL[platform]} cannot discover the skill.")
     else:
         text = skill_md.read_text(encoding="utf-8")
         if not text.startswith("---"):
@@ -359,7 +396,7 @@ def verify(destination: Path, scope: str) -> int:
         problems.append(
             f"out of date: {len(plan['new'])} file(s) missing and "
             f"{len(plan['changed'])} file(s) differ from the source. "
-            f"Rerun: python install.py --{scope}"
+            f"Rerun: python install.py --{scope} --platform {platform}"
         )
 
     if problems:
@@ -373,7 +410,7 @@ def verify(destination: Path, scope: str) -> int:
     print(f"  all required scripts and references present")
     print(f"  installed {marker.get('file_count')} files at {marker.get('installed_at')}")
     print()
-    print("Claude Code discovers skills at session start. If it does not offer")
+    print(f"{PLATFORM_LABEL[platform]} discovers skills at session start. If it does not offer")
     print("Veriflow, start a new session and ask: \"what skills do you have available?\"")
     return 0
 
@@ -381,23 +418,30 @@ def verify(destination: Path, scope: str) -> int:
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="install.py",
-        description="Install the Veriflow skill where Claude Code can discover it.",
+        description="Install the Veriflow skill where Claude Code and/or Codex can discover it.",
         epilog=(
-            "Claude Code reads .claude/skills/ in a project and ~/.claude/skills/ for "
-            "your user. This script writes one directory in one of those two places and "
-            "changes no global setting."
+            "Claude Code reads .claude/skills/ in a project and ~/.claude/skills/ for your "
+            "user; Codex reads .agents/skills/ and ~/.agents/skills/ the same way. This "
+            "script writes the skill directory into the place(s) requested and changes no "
+            "global setting."
         ),
     )
     scope = parser.add_mutually_exclusive_group(required=True)
     scope.add_argument(
         "--project",
         action="store_true",
-        help="Install into <project>/.claude/skills/veriflow (this project only).",
+        help="Install into this project only (<project>/.claude/skills/veriflow and/or .agents/skills/veriflow).",
     )
     scope.add_argument(
         "--personal",
         action="store_true",
-        help="Install into ~/.claude/skills/veriflow (all of your projects).",
+        help="Install for all of your projects (~/.claude/skills/veriflow and/or ~/.agents/skills/veriflow).",
+    )
+    parser.add_argument(
+        "--platform",
+        choices=("claude", "codex", "both"),
+        default="both",
+        help="Which agent to install for (default: both -- installing for one you don't use costs nothing).",
     )
     parser.add_argument(
         "--project-root",
@@ -418,15 +462,27 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.uninstall and args.verify:
         parser.error("--uninstall and --verify cannot be combined.")
 
+    args.platforms = ["claude", "codex"] if args.platform == "both" else [args.platform]
+
     try:
-        destination, scope_label = resolve_destination(args)
+        destinations = resolve_destinations(args)
         print("Veriflow skill installer")
         print("=" * 60)
-        if args.verify:
-            return verify(destination, scope_label)
-        if args.uninstall:
-            return uninstall(destination, scope_label, args)
-        return install(destination, scope_label, args)
+
+        exit_code = 0
+        for index, (destination, scope_label, platform) in enumerate(destinations):
+            if index > 0:
+                print()
+                print("-" * 60)
+                print()
+            if args.verify:
+                result = verify(destination, scope_label, platform)
+            elif args.uninstall:
+                result = uninstall(destination, scope_label, platform, args)
+            else:
+                result = install(destination, scope_label, platform, args)
+            exit_code = max(exit_code, result)
+        return exit_code
     except InstallError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
