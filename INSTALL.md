@@ -1,18 +1,22 @@
 # Installing Veriflow
 
-Veriflow is a Claude Code skill. Claude Code discovers skills in exactly two
-places:
+Veriflow is an installable skill for **Claude Code** and **Codex**. Both
+agents use the same open Agent Skills shape — a directory with a `SKILL.md`
+describing when to use it — but each scans a different folder:
 
-| Scope | Location | Applies to |
-| :--- | :--- | :--- |
-| **Project** | `<project>/.claude/skills/veriflow/SKILL.md` | that one repository |
-| **Personal** | `~/.claude/skills/veriflow/SKILL.md` | every project you open |
+| Scope | Claude Code scans | Codex scans | Applies to |
+| :--- | :--- | :--- | :--- |
+| **Project** | `<project>/.claude/skills/veriflow/SKILL.md` | `<project>/.agents/skills/veriflow/SKILL.md` | that one repository |
+| **Personal** | `~/.claude/skills/veriflow/SKILL.md` | `~/.agents/skills/veriflow/SKILL.md` | every project you open |
 
-On Windows, `~` is `%USERPROFILE%`, so the personal path is
-`C:\Users\<you>\.claude\skills\veriflow\SKILL.md`.
+On Windows, `~` is `%USERPROFILE%`, so the personal paths are
+`C:\Users\<you>\.claude\skills\veriflow\SKILL.md` and
+`C:\Users\<you>\.agents\skills\veriflow\SKILL.md`.
 
-Veriflow's source lives at `skills/veriflow/`, which Claude Code does **not**
-scan. Installing means copying that directory into one of the two paths above.
+Veriflow's source lives at `skills/veriflow/`, which neither agent scans
+directly. Installing means copying that one directory into whichever path(s)
+above you ask for — the content is identical for both agents, so nothing is
+maintained twice.
 
 ---
 
@@ -21,8 +25,8 @@ scan. Installing means copying that directory into one of the two paths above.
 - **Python 3.9 or newer.** Veriflow is pure standard library; nothing to install
   for the core engines, project detection, the verification runner, the static
   security scanner, or the API and OpenAPI engines.
-- **Claude Code**, if you want Veriflow as a skill. The scripts also work
-  standalone from a terminal.
+- **Claude Code and/or Codex**, if you want Veriflow as a skill. The scripts
+  also work standalone from a terminal with neither agent installed.
 
 Two optional dependencies, each needed only for one capability:
 
@@ -52,7 +56,14 @@ git clone https://github.com/AdityaWagh06/Veriflow.git
 cd Veriflow
 
 python install.py --project --dry-run   # see exactly what will be written
-python install.py --project             # write it
+python install.py --project             # write it -- both agents by default
+```
+
+`--platform` scopes this to one agent if you only use one:
+
+```powershell
+python install.py --project --platform claude   # Claude Code only
+python install.py --project --platform codex    # Codex only
 ```
 
 To install into a *different* project:
@@ -61,8 +72,9 @@ To install into a *different* project:
 python D:\Veriflow\install.py --project --project-root C:\work\my-app
 ```
 
-That creates `C:\work\my-app\.claude\skills\veriflow\`. Commit it if you want
-your team to get the skill automatically; add it to `.gitignore` if not.
+That creates `C:\work\my-app\.claude\skills\veriflow\` and
+`C:\work\my-app\.agents\skills\veriflow\`. Commit whichever you want your team
+to get automatically; add the rest to `.gitignore` if not.
 
 ### Personal installation (all your projects)
 
@@ -71,14 +83,15 @@ python install.py --personal --dry-run
 python install.py --personal
 ```
 
-This writes `~/.claude/skills/veriflow/` and nothing else. It does **not**
-change any Claude Code setting, registry key, `PATH` entry or environment
-variable.
+This writes `~/.claude/skills/veriflow/` and `~/.agents/skills/veriflow/` (or
+just one, with `--platform`) and nothing else. It does **not** change any
+agent setting, registry key, `PATH` entry or environment variable.
 
 ### What the installer will not do
 
 - It never runs without `--project` or `--personal`. There is no default
-  destination.
+  scope. (`--platform` does default to `both`, since installing for an agent
+  you don't use costs nothing and is one flag away to restrict.)
 - It never overwrites a `veriflow` skill directory it did not create. If one
   exists without Veriflow's `.veriflow-install.json` marker, the installer stops
   and tells you your options. `--force` replaces it, and keeps a timestamped
@@ -88,10 +101,13 @@ variable.
 
 ---
 
-## Confirm Claude Code found it
+## Confirm it was found
 
-1. **Restart Claude Code**, or start a new session. Skills are scanned at
-   session start, so an installation mid-session is not visible until then.
+1. **Restart the agent**, or start a new session.
+   - Claude Code scans skills at session start, so an installation mid-session
+     is not visible until the next one.
+   - Codex detects new skills automatically; restart only if a newly added
+     skill still doesn't appear.
 
 2. **Check the installation itself:**
 
@@ -101,18 +117,21 @@ variable.
    python install.py --personal --verify
    ```
 
-   This confirms `SKILL.md` exists with valid frontmatter, that every required
-   script and reference is present, and that the installed copy is not out of
-   date relative to the source. Exit code 0 means OK.
+   This verifies both platforms by default (narrow with `--platform claude` /
+   `--platform codex`). It confirms `SKILL.md` exists with valid frontmatter,
+   that every required script and reference is present, and that the
+   installed copy is not out of date relative to the source. Exit code 0
+   means OK.
 
-3. **Ask Claude Code:**
+3. **Ask the agent:**
 
    > what skills do you have available?
 
-   `veriflow` should be listed.
+   `veriflow` should be listed. In Codex you can also explicitly invoke it
+   with `$veriflow` or `/skills`.
 
-4. **Invoke it.** You do not call a skill by name. Describe the work and Claude
-   loads the skill when its description matches:
+4. **Invoke it.** You don't usually need to call it by name — describe the
+   work and the agent loads the skill when its description matches:
 
    > I changed the login handler. Verify it.
 
@@ -137,7 +156,10 @@ python skills\veriflow\scripts\run-checks.py .
 # 3. Static security scan (read-only, offline, no prerequisites)
 python skills\veriflow\scripts\run-security-tests.py .
 
-# 4. The bounded-repair demo: a deliberately broken project
+# 4. Full audit: detection + security scan + core checks + catalog scope, one verdict
+python skills\veriflow\scripts\run-audit.py examples\repair-demo --execute
+
+# 5. The bounded-repair demo: a deliberately broken project
 python skills\veriflow\scripts\run-checks.py examples\repair-demo
 type examples\repair-demo\README.md
 ```
@@ -168,15 +190,19 @@ python -m pytest tests -q
 
 ## Troubleshooting
 
-### Claude Code does not list the skill
+### The agent does not list the skill
 
-1. Confirm the file is where Claude Code looks:
+1. Confirm the file is where the agent looks:
    ```powershell
    dir .claude\skills\veriflow\SKILL.md
+   dir .agents\skills\veriflow\SKILL.md
    dir $env:USERPROFILE\.claude\skills\veriflow\SKILL.md
+   dir $env:USERPROFILE\.agents\skills\veriflow\SKILL.md
    ```
-2. Run `python install.py --project --verify`. It names the specific problem.
-3. Start a **new session**. Skills are scanned once, at session start.
+2. Run `python install.py --project --verify`. It names the specific problem
+   for each platform.
+3. Start a **new session** (Claude Code scans once, at session start; Codex
+   usually detects changes live, but a restart rules it out).
 4. Check the frontmatter is intact. `SKILL.md` must begin with `---` on line 1,
    and contain `name:` and `description:` before the closing `---`.
 5. Confirm you are in the project you installed into. A project installation
@@ -238,17 +264,17 @@ directory's permissions. Veriflow does not need and does not request elevation.
 ```powershell
 cd Veriflow
 git pull
-python install.py --project    # or --personal
+python install.py --project    # or --personal; both agents by default
 ```
 
 The installer reports what it added, updated and removed, deletes files that no
 longer exist in the new version, and says "Already up to date" when there is
-nothing to do. Restart Claude Code afterwards.
+nothing to do. Restart the agent(s) afterwards.
 
 If you edit `skills/veriflow/` in a Veriflow checkout, re-run
-`python install.py --project` to re-sync the committed copy at
-`.claude/skills/veriflow/`. A test (`tests/test_install.py`) fails if the two
-drift apart.
+`python install.py --project` to re-sync the committed copies at
+`.claude/skills/veriflow/` and `.agents/skills/veriflow/`. A test
+(`tests/test_install.py`) fails if either drifts from the source.
 
 ---
 
@@ -259,21 +285,23 @@ python install.py --project --uninstall --dry-run
 python install.py --project --uninstall
 ```
 
-This removes only the directory it installed, and refuses to remove one without
-Veriflow's marker file. It also removes the parent `skills/` directory if it is
-left empty, so a sibling skill is never affected. Restart Claude Code afterwards
-so it stops offering the skill.
+Removes both platforms' copies by default; add `--platform claude` or
+`--platform codex` to remove only one. This removes only the directory it
+installed, and refuses to remove one without Veriflow's marker file. It also
+removes the parent `skills/` directory if left empty, so a sibling skill is
+never affected. Restart the agent afterwards so it stops offering the skill.
 
 Nothing else needs undoing: the installer changed no setting outside that
 directory.
 
 ---
 
-## Using the scripts without Claude Code
+## Using the scripts without Claude Code or Codex
 
 Every script is a standalone CLI with `--help`:
 
 ```powershell
+python skills\veriflow\scripts\run-audit.py --help
 python skills\veriflow\scripts\run-checks.py --help
 python skills\veriflow\scripts\run-security-tests.py --help
 python skills\veriflow\scripts\run-api-tests.py --help
