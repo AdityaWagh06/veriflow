@@ -30,15 +30,24 @@ actual location (see *Locating this skill* below).
 | Script | What it does | Safe by default |
 | :--- | :--- | :--- |
 | `scripts/detect-project.py` | Reports ecosystems, package manager, scripts | read-only |
+| `scripts/run-audit.py` | **Full audit**: detection + security scan + core checks + catalog scope, as one verdict | security scan runs free; core checks need `--execute` |
 | `scripts/run-checks.py` | Discovers and runs test/lint/typecheck/build checks | preview unless `--execute` |
 | `scripts/run-security-tests.py` | Static security scan; opt-in live security checks | static is read-only and offline |
 | `scripts/run-api-tests.py` | HTTP contract, auth, error and resilience checks | preview unless `--execute`; loopback only |
 | `scripts/run-openapi-tests.py` | OpenAPI 3.0/3.1 contract verification | preview unless `--execute`; loopback only |
 | `scripts/run-browser-tests.py` | Playwright user journeys | preview unless `--execute`; `BLOCKED` without Playwright |
+| `scripts/check_dependencies.py` | Verifies each declared dependency exists on PyPI/npm; flags hallucinated or notably-new packages | preview unless `--execute`; only contacts `pypi.org` / `registry.npmjs.org` |
+| `scripts/repair_budget.py` | Enforces the 3-attempt repair cap in code, not just in this file's prose | local file only, no network |
 
 Everything is Python standard library. `playwright` and `PyYAML` are optional;
 when absent the affected checks report `BLOCKED` with remediation, never `PASS`
 and never a crash.
+
+For a quick, shareable snapshot of a whole project -- not a specific change --
+run `scripts/run-audit.py <dir> --execute --markdown report.md` instead of
+invoking the engines separately. It never reports a bare "READY": the best
+verdict it gives is `READY_WITH_RISKS`, because a clean run is evidence under
+the conditions tested, not a guarantee.
 
 ## Reference files
 
