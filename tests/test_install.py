@@ -1,13 +1,16 @@
 """
-Tests for the Claude Code skill installer.
+Tests for the Veriflow skill installer (Claude Code and Codex).
 
 The installer writes into a user's home directory or project, so the properties
 that matter most are the destructive ones: it must never clobber work it did
 not write, it must be reversible, it must be idempotent, and --dry-run must
-genuinely change nothing.
+genuinely change nothing. ``--platform`` defaults to "both", so most tests
+below exercise both agents' destinations at once; a dedicated test class
+covers scoping to exactly one platform.
 
 Every test installs into a temporary directory. None of them touch the real
-~/.claude, and none of them run the installer without an explicit destination.
+~/.claude or ~/.agents, and none of them run the installer without an explicit
+destination.
 """
 
 from __future__ import annotations
@@ -23,7 +26,10 @@ import unittest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = REPO_ROOT / "install.py"
 SOURCE_SKILL = REPO_ROOT / "skills" / "veriflow"
-INSTALLED_SKILL = REPO_ROOT / ".claude" / "skills" / "veriflow"
+INSTALLED_SKILL_CLAUDE = REPO_ROOT / ".claude" / "skills" / "veriflow"
+INSTALLED_SKILL_CODEX = REPO_ROOT / ".agents" / "skills" / "veriflow"
+# Backwards-compatible alias used by earlier tests in this file.
+INSTALLED_SKILL = INSTALLED_SKILL_CLAUDE
 
 _spec = importlib.util.spec_from_file_location("veriflow_installer", INSTALLER)
 installer = importlib.util.module_from_spec(_spec)
@@ -104,11 +110,13 @@ class TestInstallerSafety(unittest.TestCase):
             # And the real skill is now installed.
             self.assertTrue((foreign / "scripts" / "run-checks.py").is_file())
 
-    def test_installing_creates_nothing_outside_the_skill_directory(self):
-        """Behavioural check: the installer writes one directory and nothing else.
+    def test_installing_creates_nothing_outside_the_skill_directories(self):
+        """Behavioural check: the installer writes only the skill directories.
 
         Asserted by diffing the whole project tree before and after, so a stray
         settings file, lockfile or marker written anywhere else fails the test.
+        Default scope is "both" platforms, so both .claude/ and .agents/ are
+        allowed; nothing else is.
         """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -121,12 +129,16 @@ class TestInstallerSafety(unittest.TestCase):
             after = {p.relative_to(root) for p in root.rglob("*")}
             created = after - before
 
-            allowed_prefix = Path(".claude")
+            allowed_prefixes = (Path(".claude"), Path(".agents"))
             outside = sorted(
                 str(p) for p in created
-                if allowed_prefix not in (p, *p.parents)
+                if not any(prefix in (p, *p.parents) for prefix in allowed_prefixes)
             )
-            self.assertEqual(outside, [], f"installer wrote outside .claude/: {outside}")
+            self.assertEqual(outside, [], f"installer wrote outside .claude/ and .agents/: {outside}")
+
+            # Both agents' destinations were actually created.
+            self.assertTrue((root / ".claude" / "skills" / "veriflow" / "SKILL.md").is_file())
+            self.assertTrue((root / ".agents" / "skills" / "veriflow" / "SKILL.md").is_file())
 
             # Pre-existing content is untouched.
             self.assertEqual(
@@ -313,33 +325,99 @@ class TestVerifyAndUninstall(unittest.TestCase):
 
 
 class TestCommittedInstallationIsInSync(unittest.TestCase):
-    """The repository ships a pre-installed copy at .claude/skills/veriflow.
+    """The repository ships pre-installed copies for both agents.
 
-    It exists so that cloning Veriflow makes the skill immediately discoverable
-    with no setup step. The risk is drift: an edit to skills/veriflow that is
-    never re-installed leaves two different skills in one repository. This test
-    makes that drift a test failure with a one-command fix.
+    They exist so that cloning Veriflow makes the skill immediately
+    discoverable by Claude Code and by Codex with no setup step. The risk is
+    drift: an edit to skills/veriflow that is never re-installed leaves a
+    stale skill in one or both repositories. These tests make that drift a
+    test failure with a one-command fix.
     """
 
-    def test_committed_installation_exists(self):
+    def test_committed_claude_installation_exists(self):
         self.assertTrue(
-            (INSTALLED_SKILL / "SKILL.md").is_file(),
-            "run: python install.py --project",
+            (INSTALLED_SKILL_CLAUDE / "SKILL.md").is_file(),
+            "run: python install.py --project --platform claude",
         )
 
-    def test_committed_installation_matches_the_source(self):
-        plan = installer.classify(INSTALLED_SKILL, installer.iter_source_files())
+    def test_committed_codex_installation_exists(self):
+        self.assertTrue(
+            (INSTALLED_SKILL_CODEX / "SKILL.md").is_file(),
+            "run: python install.py --project --platform codex",
+        )
+
+    def test_committed_claude_installation_matches_the_source(self):
+        plan = installer.classify(INSTALLED_SKILL_CLAUDE, installer.iter_source_files())
         self.assertEqual(
             (plan["new"], plan["changed"], plan["stale"]),
             ([], [], []),
             "the committed .claude/skills/veriflow has drifted from skills/veriflow. "
-            "Re-sync with: python install.py --project",
+            "Re-sync with: python install.py --project --platform claude",
+        )
+
+    def test_committed_codex_installation_matches_the_source(self):
+        plan = installer.classify(INSTALLED_SKILL_CODEX, installer.iter_source_files())
+        self.assertEqual(
+            (plan["new"], plan["changed"], plan["stale"]),
+            ([], [], []),
+            "the committed .agents/skills/veriflow has drifted from skills/veriflow. "
+            "Re-sync with: python install.py --project --platform codex",
         )
 
     def test_resolve_personal_destination_points_at_the_documented_path(self):
-        """The documented personal path must be the one the code actually uses."""
-        expected = Path.home() / ".claude" / "skills" / "veriflow"
-        self.assertEqual(installer.personal_skills_dir() / "veriflow", expected)
+        """The documented personal paths must be the ones the code actually uses."""
+        self.assertEqual(
+            installer.personal_skills_dir("claude") / "veriflow",
+            Path.home() / ".claude" / "skills" / "veriflow",
+        )
+        self.assertEqual(
+            installer.personal_skills_dir("codex") / "veriflow",
+            Path.home() / ".agents" / "skills" / "veriflow",
+        )
+
+
+class TestPlatformSelection(unittest.TestCase):
+    """--platform scopes which agent(s) are touched."""
+
+    def test_platform_claude_only_writes_claude_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = run_installer("--project", "--project-root", tmp, "--platform", "claude")
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertTrue((Path(tmp) / ".claude" / "skills" / "veriflow" / "SKILL.md").is_file())
+            self.assertFalse((Path(tmp) / ".agents").exists())
+
+    def test_platform_codex_only_writes_codex_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = run_installer("--project", "--project-root", tmp, "--platform", "codex")
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertTrue((Path(tmp) / ".agents" / "skills" / "veriflow" / "SKILL.md").is_file())
+            self.assertFalse((Path(tmp) / ".claude").exists())
+
+    def test_platform_both_is_the_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = run_installer("--project", "--project-root", tmp)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertTrue((Path(tmp) / ".claude" / "skills" / "veriflow" / "SKILL.md").is_file())
+            self.assertTrue((Path(tmp) / ".agents" / "skills" / "veriflow" / "SKILL.md").is_file())
+
+    def test_invalid_platform_value_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = run_installer("--project", "--project-root", tmp, "--platform", "gemini")
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("invalid choice", proc.stderr.lower())
+
+    def test_codex_installed_scripts_run_from_their_installed_location(self):
+        """The Codex copy must work standalone too, not only the Claude copy."""
+        with tempfile.TemporaryDirectory() as tmp:
+            run_installer("--project", "--project-root", tmp, "--platform", "codex")
+            destination = Path(tmp) / ".agents" / "skills" / "veriflow"
+
+            detect = subprocess.run(
+                [sys.executable, str(destination / "scripts" / "detect-project.py"), tmp],
+                capture_output=True, text=True, timeout=120,
+            )
+            self.assertEqual(detect.returncode, 0, detect.stderr)
+            self.assertIn("detected_types", detect.stdout)
 
 
 if __name__ == "__main__":
