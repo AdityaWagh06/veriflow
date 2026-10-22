@@ -18,3 +18,7 @@ htmlcov/
 
 # Local temporary demonstration scratch
 .demo-broken-project/
+
+# Veriflow repair-attempt budget sessions: ephemeral per-verification-session
+# working state, not something to commit to any project this runs against.
+.veriflow/
