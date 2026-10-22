@@ -71,10 +71,18 @@ something you'd have to describe from scratch every session.
   pass, and the audit's verdict never claims a bare "READY" — the best it
   reports is `READY_WITH_RISKS`, because a clean run is evidence under the
   conditions tested, not a guarantee.
-- **Bounds repair** — a 9-step lifecycle caps an agent at 3 file-modifying
-  repair attempts per session, separates read-only diagnosis (free) from an
-  actual edit (counted), and prohibits deleting tests, weakening assertions,
-  or suppressing errors to force a green result.
+- **Bounds repair, in code, not just in prose** — a 9-step lifecycle caps an
+  agent at 3 file-modifying repair attempts per session, separates read-only
+  diagnosis (free) from an actual edit (counted), and prohibits deleting
+  tests, weakening assertions, or suppressing errors to force a green result.
+  `scripts/repair_budget.py` makes the cap a checkable fact: it persists a
+  real counter per issue and refuses (exit code 1) past the 4th attempt,
+  instead of relying on the agent to self-report honestly.
+- **Catches hallucinated and typosquatted dependencies** —
+  `scripts/check_dependencies.py` verifies every package declared in
+  `requirements*.txt` or `package.json` actually exists on PyPI / npm, and
+  flags a package first published under 30 days ago as worth a second look.
+  Neither Claude Code nor Codex does this automatically.
 - **Redacts credentials** — captured output, HTTP headers, and security
   findings are redacted before they reach a report. A matched secret never
   appears in a report, only its length and a 2-character prefix.
@@ -89,6 +97,8 @@ something you'd have to describe from scratch every session.
 | API | HTTP contract, auth gates, error handling, rate limiting, resilience — against a local loopback service | `scripts/run-api-tests.py` |
 | OpenAPI | Validates a live service against an OpenAPI 3.0/3.1 spec (JSON or YAML) | `scripts/run-openapi-tests.py` |
 | Browser | 15 Playwright user-journey templates (login, routing, forms, sessions, console errors) | `scripts/run-browser-tests.py` |
+| Dependency identity | Verifies declared packages exist on PyPI/npm; flags hallucinated or notably-new names | `scripts/check_dependencies.py` |
+| Repair budget | Enforces the 3-attempt repair cap with a real persisted counter, not just a prompt | `scripts/repair_budget.py` |
 
 The static half of the security engine needs no prerequisite at all — it's
 read-only, offline, and runs on any project. Live security checks, the API
