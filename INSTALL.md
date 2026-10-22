@@ -159,7 +159,16 @@ python skills\veriflow\scripts\run-security-tests.py .
 # 4. Full audit: detection + security scan + core checks + catalog scope, one verdict
 python skills\veriflow\scripts\run-audit.py examples\repair-demo --execute
 
-# 5. The bounded-repair demo: a deliberately broken project
+# 5. Dependency identity check (preview lists packages; --execute queries PyPI/npm)
+python skills\veriflow\scripts\check_dependencies.py .
+python skills\veriflow\scripts\check_dependencies.py . --execute
+
+# 6. Repair-attempt budget: a real counter, not just an instruction
+python skills\veriflow\scripts\repair_budget.py --root . --attempt demo-issue --note "example"
+python skills\veriflow\scripts\repair_budget.py --root . --status demo-issue
+python skills\veriflow\scripts\repair_budget.py --root . --reset demo-issue
+
+# 7. The bounded-repair demo: a deliberately broken project
 python skills\veriflow\scripts\run-checks.py examples\repair-demo
 type examples\repair-demo\README.md
 ```
@@ -307,6 +316,8 @@ python skills\veriflow\scripts\run-security-tests.py --help
 python skills\veriflow\scripts\run-api-tests.py --help
 python skills\veriflow\scripts\run-openapi-tests.py --help
 python skills\veriflow\scripts\run-browser-tests.py --help
+python skills\veriflow\scripts\check_dependencies.py --help
+python skills\veriflow\scripts\repair_budget.py --help
 ```
 
 Add `--json` to any of them for machine-readable output suitable for CI.
