@@ -243,6 +243,8 @@ class TestEvidenceHonesty(unittest.TestCase):
             "run-openapi-tests.py",
             "run-browser-tests.py",
             "detect-project.py",
+            "check_dependencies.py",
+            "repair_budget.py",
         }
         for pattern in self.patterns:
             if pattern["automation_status"] not in ("automated", "partially_automated"):
