@@ -545,6 +545,7 @@
         "dotnet"
       ],
       "recommended_checks": [
+        "Run check_dependencies.py --execute on every manifest change.",
         "Verify each newly added dependency on its registry: maintainer, downloads, creation date, repository link.",
         "Confirm the import name matches the distribution name.",
         "Treat a very new package with negligible downloads as suspect, regardless of how apt the name is.",
@@ -554,13 +555,13 @@
       "regression_tests": "A CI step that fails on an unpinned dependency or an unaudited manifest change, and a review gate on every manifest diff.",
       "severity": "CRITICAL",
       "confidence_guidance": "A 404 from the registry is conclusive. A package that exists is not therefore the right package; identity still needs checking.",
-      "automation_status": "partially_automated",
-      "veriflow_coverage": "SEC-CONF-004 flags unpinned requirements and SEC-AI-003 flags install-time hooks that fetch or shell out. Veriflow bundles no registry client and no vulnerability database: it will not query a registry or install anything during verification. Registry identity verification is guidance, and CVE coverage is the audit tool's job. Catalog case SEC-020.",
+      "automation_status": "automated",
+      "veriflow_coverage": "check_dependencies.py queries the real registry (PyPI for Python, npm for JavaScript/TypeScript) for every package declared in requirements*.txt or package.json, and reports NOT_FOUND for a name that does not exist and notably_new for one first published under 30 days ago. Preview-only by default; --execute is required to contact pypi.org or registry.npmjs.org, the only two hosts it will ever reach. SEC-CONF-004 separately flags unpinned requirements and SEC-AI-003 flags install-time hooks that fetch or shell out. No vulnerability (CVE) database is bundled: run the ecosystem's own audit tool for that.",
       "preconditions": [
         "A dependency manifest exists"
       ],
-      "known_false_positives": "A private or internally hosted package is absent from the public registry and is not therefore hallucinated.",
-      "manual_review_required": true,
+      "known_false_positives": "A private or internally hosted package is absent from the public registry and is not therefore hallucinated -- this check cannot see a private index. A notably_new flag on a package the team just intentionally published is expected, not a defect.",
+      "manual_review_required": false,
       "evidence_basis": "empirical",
       "source_references": [
         "SO2026-DISRUPTION",

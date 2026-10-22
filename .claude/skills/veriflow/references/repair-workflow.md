@@ -97,6 +97,7 @@ To ensure honest accounting, maintain clear boundaries between the three stages 
    - An agent is strictly allowed a maximum of **3 repair attempts** per verification session.
    - An attempt is counted **only when the agent modifies project files** in response to a failure.
    - Read-only investigation, log inspection, and running preview checks never count against the budget.
+   - This is more than a convention: run `python <skill>/scripts/repair_budget.py --root . --attempt <issue-id> --note "<what changed>"` right after each file-modifying edit. It persists a real counter in `.veriflow/repair-sessions/` and refuses (exit code 1) once the 4th attempt against the same issue id is recorded, so the cap can be checked rather than only self-reported. Use the same `<issue-id>` for every attempt on one issue; `--status <issue-id>` reports the count without consuming it.
 2. **Never Repeat Unsuccessful Fixes**:
    - Never apply the same or essentially identical unsuccessful fix twice. Every new attempt must be backed by distinct diagnostic evidence or a different hypothesis.
 3. **Immediate Re-Verification**:
