@@ -17,6 +17,35 @@ as a pass. Veriflow's result states are built so none of that can happen
 silently — and it ships as a skill both major coding agents can discover and
 load automatically, not a script you have to remember to run.
 
+### What Claude Code and Codex don't do on their own
+
+Both are general-purpose coding agents with shell and file access — they can
+technically run anything you tell them to. What neither ships with is:
+
+- **A real security scanner.** Ask either to "check for vulnerabilities" and
+  you get the model's judgment, with no deterministic rule set behind it.
+  Veriflow's 26 static rules + 9 live checks are actual pattern-matching and
+  HTTP-probing code, each proven against a fault that it must catch.
+- **A dependency identity check.** Neither verifies that a package an agent
+  just suggested actually exists on its registry before you install it.
+  `check_dependencies.py` does, against the real PyPI/npm.
+- **A structural result vocabulary.** By default an agent just writes prose
+  about what happened — nothing stops it from saying "tests pass" when a
+  tool was missing. Veriflow's 7 result states make that distinction a type,
+  not a self-report.
+- **An enforced repair budget.** "I'll only try 3 fixes" is a sentence an
+  agent can simply not honor. `repair_budget.py` persists a real counter and
+  refuses the 4th attempt in code.
+- **Credential redaction on command output.** When either agent shows you
+  raw command output, a leaked secret in it is a leaked secret in your
+  terminal. Veriflow redacts before anything is reported.
+
+What's **not** unique: the preview/execute split, the process-safety
+conventions (argument lists, timeouts, bounded output) — an agent could
+write equivalent code if asked. The value here is that it's already written,
+already tested against real faults, and ships as a skill instead of
+something you'd have to describe from scratch every session.
+
 ## What it does
 
 - **Discovers real checks** — detects the project's ecosystem (Python,
