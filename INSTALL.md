@@ -5,7 +5,7 @@
 If you use Claude Code, this is the whole install:
 
 ```text
-/plugin marketplace add AdityaWagh06/veriflow
+/plugin marketplace add OpenWave-India/veriflow
 /plugin install veriflow@veriflow
 ```
 
@@ -21,7 +21,7 @@ stay current without asking.
 From a shell, without starting a session:
 
 ```powershell
-claude plugin marketplace add AdityaWagh06/veriflow
+claude plugin marketplace add OpenWave-India/veriflow
 claude plugin install veriflow@veriflow
 ```
 
@@ -84,7 +84,7 @@ python -m playwright install chromium   # browser binaries, a separate step
 Use this when a team should get Veriflow by cloning the repo.
 
 ```powershell
-git clone https://github.com/AdityaWagh06/Veriflow.git
+git clone https://github.com/OpenWave-India/veriflow.git
 cd Veriflow
 
 python install.py --project --dry-run   # see exactly what will be written

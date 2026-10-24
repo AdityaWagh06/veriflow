@@ -88,8 +88,8 @@ class TestMarketplaceManifest(unittest.TestCase):
 
     def test_repository_and_homepage_urls_point_at_the_real_repo(self):
         plugin = self.manifest["plugins"][0]
-        self.assertIn("github.com/AdityaWagh06/veriflow", plugin["repository"])
-        self.assertIn("github.com/AdityaWagh06/veriflow", plugin["homepage"])
+        self.assertIn("github.com/OpenWave-India/veriflow", plugin["repository"])
+        self.assertIn("github.com/OpenWave-India/veriflow", plugin["homepage"])
 
     def test_plugin_description_states_what_and_when(self):
         """Claude Code matches a user's request against this description to

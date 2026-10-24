@@ -130,7 +130,7 @@ hypotheses.
 ### Claude Code — one command
 
 ```text
-/plugin marketplace add AdityaWagh06/veriflow
+/plugin marketplace add OpenWave-India/veriflow
 /plugin install veriflow@veriflow
 ```
 
@@ -140,7 +140,7 @@ installing and updating are both just a plugin operation. From your shell
 instead of inside a session:
 
 ```powershell
-claude plugin marketplace add AdityaWagh06/veriflow
+claude plugin marketplace add OpenWave-India/veriflow
 claude plugin install veriflow@veriflow
 ```
 
@@ -156,7 +156,7 @@ both; only the folder each agent scans for differs:
 | **Personal** (every project you open) | `~/.claude/skills/` | `~/.agents/skills/` |
 
 ```powershell
-git clone https://github.com/AdityaWagh06/veriflow.git
+git clone https://github.com/OpenWave-India/veriflow.git
 cd veriflow
 
 # Install for BOTH agents at once (default) — costs nothing extra:
