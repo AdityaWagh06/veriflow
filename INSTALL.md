@@ -1,8 +1,40 @@
 # Installing Veriflow
 
-Veriflow is an installable skill for **Claude Code** and **Codex**. Both
-agents use the same open Agent Skills shape — a directory with a `SKILL.md`
-describing when to use it — but each scans a different folder:
+## Fastest: Claude Code plugin marketplace
+
+If you use Claude Code, this is the whole install:
+
+```text
+/plugin marketplace add AdityaWagh06/veriflow
+/plugin install veriflow@veriflow
+```
+
+No `git clone`, no running a script. `.claude-plugin/marketplace.json` in
+this repo tells Claude Code exactly where the skill lives
+(`skills/veriflow/`), so installing is a plugin operation, not a file copy.
+To update later: open `/plugin`, select **Installed** → `veriflow` →
+**Update now**, or run `claude plugin update veriflow@veriflow` from your
+shell. This marketplace isn't on Anthropic's auto-update list by default;
+turn that on from the **Marketplaces** tab in `/plugin` if you want it to
+stay current without asking.
+
+From a shell, without starting a session:
+
+```powershell
+claude plugin marketplace add AdityaWagh06/veriflow
+claude plugin install veriflow@veriflow
+```
+
+Skip the rest of this page unless you use Codex, want a manual Claude Code
+install, or want to run the scripts standalone without either agent.
+
+---
+
+## Manual install (Codex, or Claude Code without the plugin system)
+
+Veriflow is also a plain installable skill for **Claude Code** and **Codex**.
+Both agents use the same open Agent Skills shape — a directory with a
+`SKILL.md` describing when to use it — but each scans a different folder:
 
 | Scope | Claude Code scans | Codex scans | Applies to |
 | :--- | :--- | :--- | :--- |

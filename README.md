@@ -127,9 +127,28 @@ hypotheses.
 
 ## Install
 
-Veriflow is built on the open Agent Skills format both agents share — a
-directory with a `SKILL.md` describing when to use it — so the same skill
-content works for both. Only the folder each agent scans for differs:
+### Claude Code — one command
+
+```text
+/plugin marketplace add AdityaWagh06/veriflow
+/plugin install veriflow@veriflow
+```
+
+That's it. No clone, no copying files — `.claude-plugin/marketplace.json`
+points Claude Code straight at this repo's `skills/veriflow/` directory, so
+installing and updating are both just a plugin operation. From your shell
+instead of inside a session:
+
+```powershell
+claude plugin marketplace add AdityaWagh06/veriflow
+claude plugin install veriflow@veriflow
+```
+
+### Codex, or a manual Claude Code install
+
+Both agents use the same open Agent Skills format — a directory with a
+`SKILL.md` describing when to use it — so the same skill content works for
+both; only the folder each agent scans for differs:
 
 | | Claude Code scans | Codex scans |
 | :--- | :--- | :--- |
@@ -153,6 +172,10 @@ python install.py --personal
 # Confirm it installed correctly:
 python install.py --project --verify
 ```
+
+Use one install method or the other, not both — installing via the plugin
+marketplace *and* running `install.py --platform claude` would register the
+skill twice.
 
 Then:
 - **Claude Code** — restart it, or start a new session, so it rescans skills.
