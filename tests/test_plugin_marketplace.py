@@ -53,9 +53,27 @@ class TestMarketplaceManifest(unittest.TestCase):
         """Determines the install command: `claude plugin install veriflow@veriflow`."""
         self.assertEqual(self.manifest["plugins"][0]["name"], "veriflow")
 
-    def test_plugin_source_is_the_repo_root(self):
-        """A relative path starting with ./, per the marketplace source spec."""
-        self.assertEqual(self.manifest["plugins"][0]["source"], "./")
+    def test_plugin_source_is_an_explicit_github_reference(self):
+        """Must be the explicit {source: github, repo: owner/repo} object form,
+        not the "./" relative-path shorthand.
+
+        A relative local-path source for a plugin that lives in the same repo
+        as its own marketplace is a known fragile pattern: several reported
+        Claude Code installs fail with "source type your Claude Code version
+        does not support" because the relative source gets normalized into a
+        remote source object some installer versions mishandle. The explicit
+        github form sidesteps that normalization step entirely.
+        """
+        source = self.manifest["plugins"][0]["source"]
+        self.assertIsInstance(source, dict, "source must be the explicit object form, not a relative path string")
+        self.assertEqual(source.get("source"), "github")
+        self.assertEqual(source.get("repo"), "OpenWave-India/veriflow")
+
+    def test_plugin_source_is_not_a_relative_path(self):
+        """Regression guard: never go back to the "./" shorthand that broke installs."""
+        source = self.manifest["plugins"][0]["source"]
+        if isinstance(source, str):
+            self.assertFalse(source.startswith("."), "relative-path source is the known-broken form")
 
     def test_plugin_declares_the_skills_path(self):
         plugin = self.manifest["plugins"][0]

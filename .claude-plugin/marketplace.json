@@ -11,7 +11,10 @@
   "plugins": [
     {
       "name": "veriflow",
-      "source": "./",
+      "source": {
+        "source": "github",
+        "repo": "OpenWave-India/veriflow"
+      },
       "description": "Verify code changes by discovering the project's real checks, previewing them, executing only the relevant ones, scanning for security defects (secrets, injection, hallucinated dependencies), diagnosing failures from captured evidence, applying bounded minimal repairs, and reporting honestly what passed, failed, was skipped or remains unknown. Use when implementing a feature, fixing a bug, modifying existing code, reviewing a diff, investigating a failing test or build, or preparing a project for release.",
       "version": "1.0.0",
       "author": {
