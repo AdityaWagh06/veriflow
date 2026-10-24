@@ -1,38 +1,36 @@
 # Installing Veriflow
 
-## Fastest: Claude Code plugin marketplace
-
-If you use Claude Code, this is the whole install:
+## Claude Code — paste two lines, done
 
 ```text
 /plugin marketplace add OpenWave-India/veriflow
 /plugin install veriflow@veriflow
 ```
 
-No `git clone`, no running a script. `.claude-plugin/marketplace.json` in
-this repo tells Claude Code exactly where the skill lives
-(`skills/veriflow/`), so installing is a plugin operation, not a file copy.
-To update later: open `/plugin`, select **Installed** → `veriflow` →
-**Update now**, or run `claude plugin update veriflow@veriflow` from your
-shell. This marketplace isn't on Anthropic's auto-update list by default;
-turn that on from the **Marketplaces** tab in `/plugin` if you want it to
-stay current without asking.
+No cloning, no script. The repo's `.claude-plugin/marketplace.json` tells
+Claude Code exactly where the skill lives, so installing is a plugin
+operation, not a file copy.
 
-From a shell, without starting a session:
+From a shell instead of inside a session:
 
 ```powershell
 claude plugin marketplace add OpenWave-India/veriflow
 claude plugin install veriflow@veriflow
 ```
 
-Skip the rest of this page unless you use Codex, want a manual Claude Code
-install, or want to run the scripts standalone without either agent.
+**Updating:** `/plugin` → **Installed** → `veriflow` → **Update now**, or
+`claude plugin update veriflow@veriflow` from a shell. Turn on auto-update
+from the **Marketplaces** tab in `/plugin` if you'd rather it stay current
+on its own — it's off by default for non-Anthropic marketplaces.
+
+Everyone else — skip ahead to whichever applies:
 
 ---
 
-## Manual install (Codex, or Claude Code without the plugin system)
+## Codex, or a manual Claude Code install
 
-Veriflow is also a plain installable skill for **Claude Code** and **Codex**.
+For everything below, Veriflow is a plain installable skill for **Claude
+Code** and **Codex**.
 Both agents use the same open Agent Skills shape — a directory with a
 `SKILL.md` describing when to use it — but each scans a different folder:
 
